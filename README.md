@@ -12,6 +12,14 @@ Go-My-Redis 是一个使用 Golang 和 Vue.js 开发的现代化 Redis 管理工
 - ⚡ 高性能的后端处理
 - 🔄 实时数据更新
 
+## 效果图
+
+![介绍页面](https://i.imgur.com/xJZ7w0A.png)
+![连接页面](https://i.imgur.com/hmWKqi3.png)
+![连接页面](https://i.imgur.com/cXKOfNx.png)
+![终端操作](https://i.imgur.com/YrK09XV.png)
+
+
 ## 技术栈
 
 ### 后端
