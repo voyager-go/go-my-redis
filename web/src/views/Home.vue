@@ -2,9 +2,19 @@
   <div class="home-container">
     <n-card title="Go My Redis" class="welcome-card">
       <template #header-extra>
-        <n-button type="primary" @click="$router.push('/connect')">
-          连接到 Redis
-        </n-button>
+        <n-space>
+          <n-button type="primary" @click="$router.push('/connect')">
+            <n-icon>
+              <component :is="RefreshOutline" />
+            </n-icon>
+          </n-button>
+          <n-button v-if="historyCount > 0" type="info" @click="$router.push('/connect')">
+            <n-icon>
+              <component :is="TimerOutline" />
+            </n-icon>
+            <span style="margin-left: 4px">{{ historyCount }}</span>
+          </n-button>
+        </n-space>
       </template>
       <n-space vertical>
         <n-alert type="info">
@@ -46,7 +56,11 @@
 </template>
 
 <script setup lang="ts">
-import { ServerOutline, KeyOutline, TimeOutline } from '@vicons/ionicons5'
+import { ServerOutline, KeyOutline, TimeOutline, RefreshOutline, TimerOutline } from '@vicons/ionicons5'
+import { ref } from 'vue'
+import { connectionHistory } from '../services/connectionHistory'
+
+const historyCount = ref(connectionHistory.getHistory().length)
 </script>
 
 <style scoped>

@@ -122,3 +122,10 @@ func (s *RedisService) Expire(key string, seconds int64) error {
 	ctx := context.Background()
 	return s.client.Expire(ctx, key, time.Duration(seconds)*time.Second).Err()
 }
+
+func (s *RedisService) Disconnect() error {
+	if s.client != nil {
+		return s.client.Close()
+	}
+	return nil
+}

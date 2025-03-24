@@ -155,3 +155,11 @@ func (h *RedisHandler) Expire(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{"message": "TTL set successfully"})
 }
+
+func (h *RedisHandler) Disconnect(c *gin.Context) {
+	if err := h.redisService.Disconnect(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "Disconnected successfully"})
+}

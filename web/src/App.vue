@@ -8,31 +8,27 @@ import {
   MoonOutline,
   LogOutOutline
 } from '@vicons/ionicons5'
-import { redisApi } from './api/redis'
+import MessageHandler from './components/MessageHandler.vue'
 
 const router = useRouter()
 const isDark = ref(true)
 const isConnected = computed(() => router.currentRoute.value.path !== '/')
 const theme = computed(() => isDark.value ? darkTheme : lightTheme)
+const messageHandler = ref()
 
 const toggleTheme = () => {
   isDark.value = !isDark.value
 }
 
-const handleDisconnect = async () => {
-  try {
-    await redisApi.disconnect()
-    message.success('已断开连接')
-    router.push('/')
-  } catch (error: any) {
-    message.error(error.response?.data?.error || '断开连接失败')
-  }
+const handleDisconnect = () => {
+  messageHandler.value?.handleDisconnect()
 }
 </script>
 
 <template>
   <n-config-provider :theme="theme">
     <n-message-provider>
+      <message-handler ref="messageHandler" />
       <n-layout position="absolute">
         <n-layout-header bordered style="height: 64px; padding: 16px 24px;">
           <div class="header-content">

@@ -36,6 +36,7 @@ func main() {
 		api.GET("/ttl/:key", redisHandler.GetTTL)
 		api.POST("/command", redisHandler.ExecuteCommand)
 		api.POST("/expire", redisHandler.Expire)
+		api.POST("/disconnect", redisHandler.Disconnect)
 	}
 
 	log.Fatal(r.Run(":8080"))

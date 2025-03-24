@@ -1,13 +1,16 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed, watch, nextTick } from 'vue'
-import { useMessage, NInputGroup, NInput, NButton, NIcon, NScrollbar, NMenu, NSpace, NText, NInputNumber, NEmpty, NTimeline, NTimelineItem, NTag, NDescriptions, NDescriptionsItem } from 'naive-ui'
+import { useMessage, NInputGroup, NInput, NButton, NIcon, NScrollbar, NMenu, NSpace, NText, NInputNumber, NEmpty, NTimeline, NTimelineItem, NTag, NDescriptions, NDescriptionsItem, NModal } from 'naive-ui'
 import { redisApi } from '../api/redis'
+import { connectionState } from '../services/connectionState'
 import { SearchOutline, TrashOutline, SaveOutline, ChevronDownOutline, ChevronUpOutline, TerminalOutline, CloseOutline } from '@vicons/ionicons5'
 import { Terminal } from 'xterm'
 import { FitAddon } from 'xterm-addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import 'xterm/css/xterm.css'
+import { useRouter } from 'vue-router'
 
+const router = useRouter()
 
 const message = useMessage()
 const searchPattern = ref('*')
@@ -24,6 +27,13 @@ let fitAddon: FitAddon | null = null
 const keyTypes = ref<Map<string, string>>(new Map())
 const initialTTL = ref(-1)
 const showTerminal = ref(false)
+const showReconnectModal = ref(false)
+const reconnecting = ref(false)
+
+interface CommandResult {
+  result: string
+  error?: string
+}
 
 const loadKeys = async () => {
   try {
@@ -235,7 +245,44 @@ watch(showTerminal, (value) => {
   })
 })
 
+const checkConnection = async () => {
+  const isConnected = await connectionState.checkConnection()
+  if (!isConnected) {
+    showReconnectModal.value = true
+  }
+}
+
+const handleReconnect = async () => {
+  reconnecting.value = true
+  try {
+    const success = await connectionState.reconnect()
+    if (success) {
+      message.success('重新连接成功')
+      showReconnectModal.value = false
+      await loadKeys()
+    } else {
+      message.error('重新连接失败')
+    }
+  } catch (error: any) {
+    message.error(error.response?.data?.error || '重新连接失败')
+  } finally {
+    reconnecting.value = false
+  }
+}
+
+const handleDisconnect = async () => {
+  try {
+    await redisApi.disconnect()
+    connectionState.clearState()
+    message.success('已断开连接')
+    router.push('/')
+  } catch (error: any) {
+    message.error(error.response?.data?.error || '断开连接失败')
+  }
+}
+
 onMounted(() => {
+  checkConnection()
   loadKeys()
   initTerminal()
   window.addEventListener('resize', handleResize)
@@ -360,6 +407,17 @@ onUnmounted(() => {
               </template>
               保存
             </n-button>
+            <n-button
+              type="warning"
+              strong
+              secondary
+              @click="handleDisconnect"
+            >
+              <template #icon>
+                <n-icon><CloseOutline /></n-icon>
+              </template>
+              断开连接
+            </n-button>
           </n-space>
         </n-space>
       </n-card>
@@ -380,6 +438,19 @@ onUnmounted(() => {
         <div ref="terminalRef" class="terminal-container"></div>
       </div>
     </div>
+
+    <!-- 重连提示模态框 -->
+    <n-modal
+      v-model:show="showReconnectModal"
+      preset="dialog"
+      type="warning"
+      title="连接已断开"
+      content="是否尝试重新连接？"
+      positive-text="重新连接"
+      negative-text="取消"
+      :positive-button-loading="reconnecting"
+      @positive-click="handleReconnect"
+    />
   </div>
 </template>
 

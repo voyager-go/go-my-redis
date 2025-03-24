@@ -26,7 +26,11 @@ import {
   NTree,
   NTag,
   NEmpty,
-  NPopconfirm
+  NPopconfirm,
+  NDivider,
+  NList,
+  NListItem,
+  NThing
 } from 'naive-ui'
 
 const naive = create({
@@ -53,7 +57,11 @@ const naive = create({
     NTree,
     NTag,
     NEmpty,
-    NPopconfirm
+    NPopconfirm,
+    NDivider,
+    NList,
+    NListItem,
+    NThing
   ]
 })
 

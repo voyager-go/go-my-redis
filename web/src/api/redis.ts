@@ -22,6 +22,10 @@ export const redisApi = {
     return api.post('/disconnect')
   },
 
+  ping: () => {
+    return api.post('/command', { command: 'PING' })
+  },
+
   status: () => api.get('/status'),
 
   // 键值操作
