@@ -37,6 +37,22 @@ func main() {
 		api.POST("/command", redisHandler.ExecuteCommand)
 		api.POST("/expire", redisHandler.Expire)
 		api.POST("/disconnect", redisHandler.Disconnect)
+
+		// 列表操作
+		api.GET("/list/:key", redisHandler.GetList)
+		api.GET("/list/:key/length", redisHandler.GetListLength)
+
+		// 集合操作
+		api.GET("/set/:key", redisHandler.GetSet)
+		api.GET("/set/:key/length", redisHandler.GetSetLength)
+
+		// 哈希操作
+		api.GET("/hash/:key", redisHandler.GetHash)
+		api.GET("/hash/:key/length", redisHandler.GetHashLength)
+
+		// 有序集合操作
+		api.GET("/zset/:key", redisHandler.GetZSet)
+		api.GET("/zset/:key/length", redisHandler.GetZSetLength)
 	}
 
 	log.Fatal(r.Run(":8080"))

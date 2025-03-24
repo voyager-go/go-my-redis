@@ -17,10 +17,14 @@ const handleDisconnect = async () => {
 }
 
 defineExpose({
-  handleDisconnect
+  handleDisconnect,
+  success: message.success,
+  error: message.error,
+  info: message.info,
+  warning: message.warning
 })
 </script>
 
 <template>
   <div></div>
-</template> 
+</template>

@@ -30,8 +30,12 @@ import {
   NDivider,
   NList,
   NListItem,
-  NThing
+  NThing,
+  NAlert
 } from 'naive-ui'
+import { darkTheme, lightTheme } from 'naive-ui'
+import { ref } from 'vue'
+import routes from './router'
 
 const naive = create({
   components: [
@@ -61,7 +65,8 @@ const naive = create({
     NDivider,
     NList,
     NListItem,
-    NThing
+    NThing,
+    NAlert
   ]
 })
 

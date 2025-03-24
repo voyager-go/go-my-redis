@@ -129,3 +129,65 @@ func (s *RedisService) Disconnect() error {
 	}
 	return nil
 }
+
+// GetList 获取列表数据
+func (s *RedisService) GetList(key string) ([]string, error) {
+	ctx := context.Background()
+	return s.client.LRange(ctx, key, 0, -1).Result()
+}
+
+// GetListLength 获取列表长度
+func (s *RedisService) GetListLength(key string) (int64, error) {
+	ctx := context.Background()
+	return s.client.LLen(ctx, key).Result()
+}
+
+// GetSet 获取集合数据
+func (s *RedisService) GetSet(key string) ([]string, error) {
+	ctx := context.Background()
+	return s.client.SMembers(ctx, key).Result()
+}
+
+// GetSetLength 获取集合长度
+func (s *RedisService) GetSetLength(key string) (int64, error) {
+	ctx := context.Background()
+	return s.client.SCard(ctx, key).Result()
+}
+
+// GetHash 获取哈希数据
+func (s *RedisService) GetHash(key string) (map[string]string, error) {
+	ctx := context.Background()
+	return s.client.HGetAll(ctx, key).Result()
+}
+
+// GetHashLength 获取哈希字段数
+func (s *RedisService) GetHashLength(key string) (int64, error) {
+	ctx := context.Background()
+	return s.client.HLen(ctx, key).Result()
+}
+
+// GetZSet 获取有序集合数据
+func (s *RedisService) GetZSet(key string) ([]model.ZSetMember, error) {
+	ctx := context.Background()
+	// 获取所有成员和分数
+	zset, err := s.client.ZRangeWithScores(ctx, key, 0, -1).Result()
+	if err != nil {
+		return nil, err
+	}
+
+	// 转换为自定义结构
+	members := make([]model.ZSetMember, len(zset))
+	for i, z := range zset {
+		members[i] = model.ZSetMember{
+			Member: z.Member.(string),
+			Score:  z.Score,
+		}
+	}
+	return members, nil
+}
+
+// GetZSetLength 获取有序集合长度
+func (s *RedisService) GetZSetLength(key string) (int64, error) {
+	ctx := context.Background()
+	return s.client.ZCard(ctx, key).Result()
+}

@@ -1,18 +1,17 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed, watch, nextTick } from 'vue'
-import { useMessage, NInputGroup, NInput, NButton, NIcon, NScrollbar, NMenu, NSpace, NText, NInputNumber, NEmpty, NTimeline, NTimelineItem, NTag, NDescriptions, NDescriptionsItem, NModal } from 'naive-ui'
+import { NInputGroup, NInput, NButton, NIcon, NScrollbar, NSpace, NText, NInputNumber, NEmpty, NTimeline, NTimelineItem, NTag, NDescriptions, NDescriptionsItem, NModal, NDataTable } from 'naive-ui'
 import { redisApi } from '../api/redis'
 import { connectionState } from '../services/connectionState'
-import { SearchOutline, TrashOutline, SaveOutline, ChevronDownOutline, ChevronUpOutline, TerminalOutline, CloseOutline } from '@vicons/ionicons5'
-import { Terminal } from 'xterm'
-import { FitAddon } from 'xterm-addon-fit'
-import { WebLinksAddon } from '@xterm/addon-web-links'
-import 'xterm/css/xterm.css'
+import { SearchOutline, TrashOutline, SaveOutline, TerminalOutline, CloseOutline } from '@vicons/ionicons5'
+import '@fontsource/jetbrains-mono'
+import { createTerminalService, type TerminalService } from '../services/terminal'
 import { useRouter } from 'vue-router'
+import MessageHandler from '../components/MessageHandler.vue'
+import 'xterm/css/xterm.css'
 
 const router = useRouter()
-
-const message = useMessage()
+const messageHandler = ref()
 const searchPattern = ref('*')
 const keyTree = ref<string[]>([])
 const selectedKey = ref('')
@@ -22,35 +21,50 @@ const ttl = ref(-1)
 const saving = ref(false)
 const deleting = ref(false)
 const terminalRef = ref<HTMLElement | null>(null)
-let terminal: Terminal | null = null
-let fitAddon: FitAddon | null = null
+const terminalService = ref<TerminalService | null>(null)
 const keyTypes = ref<Map<string, string>>(new Map())
 const initialTTL = ref(-1)
 const showTerminal = ref(false)
 const showReconnectModal = ref(false)
 const reconnecting = ref(false)
+const commandHistory = ref<string[]>([])
+const historyIndex = ref(-1)
 
-interface CommandResult {
-  result: string
-  error?: string
-}
+// 添加确认对话框的状态
+const showDeleteConfirm = ref(false)
+const showSaveConfirm = ref(false)
 
 const loadKeys = async () => {
   try {
-    const response = await redisApi.keys(searchPattern.value)
-    keyTree.value = response || []
+    const response = await redisApi.getKeys(searchPattern.value)
+    keyTree.value = response.rdb_keys || []
     selectedKey.value = ''
     keyValue.value = ''
     keyType.value = ''
+    ttl.value = -1
     initialTTL.value = -1
+    keyTypes.value.clear() // 清空之前的类型缓存
+    
     // 获取所有键的类型
-    for (const key of keyTree.value) {
-      const type = await redisApi.type(key)
-      keyTypes.value.set(key, type)
-    }
+    const typePromises = keyTree.value.map(async (key) => {
+      try {
+        const typeResponse = await redisApi.type(key)
+        // 从响应中提取类型值
+        const typeStr = String(typeResponse.data || 'unknown')
+        keyTypes.value.set(key, typeStr)
+      } catch (error) {
+        console.error(`获取键 ${key} 的类型失败:`, error)
+        keyTypes.value.set(key, 'unknown')
+      }
+    })
+    
+    await Promise.all(typePromises)
   } catch (error: any) {
-    message.error(error.response?.data?.error || '加载键列表失败')
+    messageHandler.value?.error(error.response?.data?.error || '加载键列表失败')
     keyTree.value = []
+    keyTypes.value.clear()
+    ttl.value = -1
+    initialTTL.value = -1
   }
 }
 
@@ -61,16 +75,49 @@ const handleSearch = () => {
 const handleKeyClick = async (key: string) => {
   try {
     selectedKey.value = key
-    const type = await redisApi.type(key)
-    keyType.value = type
-    keyTypes.value.set(key, type)
-    const response = await redisApi.getKey(key)
-    keyValue.value = response.data.value
-    const keyTtl = await redisApi.ttl(key)
-    ttl.value = keyTtl
-    initialTTL.value = keyTtl
+    const typeResponse = await redisApi.type(key)
+    // 从响应中提取类型值
+    const typeStr = String(typeResponse.data || 'unknown')
+    keyType.value = typeStr
+    keyTypes.value.set(key, typeStr)
+    
+    // 根据类型获取数据
+    let response
+    switch (typeStr) {
+      case 'string':
+        response = await redisApi.getKey(key)
+        keyValue.value = response.value || ''
+        break
+      case 'list':
+        response = await redisApi.getList(key)
+        keyValue.value = response.data
+        break
+      case 'set':
+        response = await redisApi.getSet(key)
+        keyValue.value = response.data
+        break
+      case 'hash':
+        response = await redisApi.getHash(key)
+        keyValue.value = response.data
+        break
+      case 'zset':
+        response = await redisApi.getZSet(key)
+        keyValue.value = response.data
+        break
+      default:
+        keyValue.value = ''
+    }
+
+    const ttlResponse = await redisApi.ttl(key)
+    // 确保 TTL 是数字类型
+    ttl.value = Number(ttlResponse.data)
+    initialTTL.value = ttl.value
   } catch (error: any) {
-    message.error(error.response?.data?.error || '加载键值失败')
+    messageHandler.value?.error(error.response?.data?.error || '加载键值失败')
+    keyValue.value = ''
+    keyType.value = 'unknown'
+    ttl.value = -1
+    initialTTL.value = -1
   }
 }
 
@@ -79,15 +126,17 @@ const handleSave = async () => {
   saving.value = true
   try {
     await redisApi.set(selectedKey.value, keyValue.value)
-    if (ttl.value !== initialTTL.value) {
-      if (ttl.value > 0 || ttl.value != -1) {
-        await redisApi.expire(selectedKey.value, ttl.value)
+    // 确保 TTL 是数字类型
+    const currentTTL = Number(ttl.value)
+    if (currentTTL !== initialTTL.value) {
+      if (currentTTL > 0 || currentTTL === -1) {
+        await redisApi.expire(selectedKey.value, currentTTL)
       }
-      initialTTL.value = ttl.value
+      initialTTL.value = currentTTL
     }
-    message.success('保存成功')
+    messageHandler.value?.success('保存成功')
   } catch (error: any) {
-    message.error(error.response?.data?.error || '保存失败')
+    messageHandler.value?.error(error.response?.data?.error || '保存失败')
   } finally {
     saving.value = false
   }
@@ -98,7 +147,7 @@ const handleDelete = async () => {
   deleting.value = true
   try {
     await redisApi.del(selectedKey.value)
-    message.success('删除成功')
+    messageHandler.value?.success('删除成功')
     selectedKey.value = ''
     keyValue.value = ''
     keyType.value = ''
@@ -106,91 +155,51 @@ const handleDelete = async () => {
     initialTTL.value = -1
     await loadKeys()
   } catch (error: any) {
-    message.error(error.response?.data?.error || '删除失败')
+    messageHandler.value?.error(error.response?.data?.error || '删除失败')
   } finally {
     deleting.value = false
   }
 }
 
+// 添加确认对话框的处理函数
+const handleDeleteConfirm = () => {
+  showDeleteConfirm.value = true
+}
+
+const handleSaveConfirm = () => {
+  showSaveConfirm.value = true
+}
+
+const confirmDelete = async () => {
+  showDeleteConfirm.value = false
+  await handleDelete()
+}
+
+const confirmSave = async () => {
+  showSaveConfirm.value = false
+  await handleSave()
+}
+
 const initTerminal = () => {
   if (!terminalRef.value) return
-
-  terminal = new Terminal({
-    cursorBlink: true,
-    theme: {
-      background: '#1e1e1e',  // 统一使用深色背景
-      foreground: '#ffffff',  // 更亮的前景色
-      cursor: '#ffffff',      // 更亮的光标颜色
-      black: '#000000',
-      red: '#e06c75',
-      green: '#98c379',
-      yellow: '#d19a66',
-      blue: '#61afef',
-      magenta: '#c678dd',
-      cyan: '#56b6c2',
-      white: '#ffffff',
-      brightBlack: '#5c6370',
-      brightRed: '#e06c75',
-      brightGreen: '#98c379',
-      brightYellow: '#d19a66',
-      brightBlue: '#61afef',
-      brightMagenta: '#c678dd',
-      brightCyan: '#56b6c2',
-      brightWhite: '#ffffff',
-    },
-    fontSize: 14,
-    fontFamily: 'Menlo, Monaco, "Courier New", monospace',
-    cursorStyle: 'block',
-    convertEol: true,
-  })
-
-  fitAddon = new FitAddon()
-  terminal.loadAddon(fitAddon)
-  terminal.loadAddon(new WebLinksAddon())
-
-  terminal.open(terminalRef.value)
-  
-  // 确保终端完全打开后再调整大小
-  nextTick(() => {
-    fitAddon?.fit()
-  })
-
-  let currentCommand = ''
-
-  terminal.onKey(({ key, domEvent }) => {
-    if (!terminal) return
-    
-    const printable = !domEvent.altKey && !domEvent.ctrlKey && !domEvent.metaKey
-
-    if (domEvent.keyCode === 13) { // Enter
-      terminal.write('\r\n')
-      if (currentCommand.trim()) {
-        executeTerminalCommand(currentCommand)
-      } else {
-        terminal.write('> ')
-      }
-      currentCommand = ''
-    } else if (domEvent.keyCode === 8) { // Backspace
-      if (currentCommand.length > 0) {
-        currentCommand = currentCommand.slice(0, -1)
-        terminal.write('\b \b')
-      }
-    } else if (printable) {
-      currentCommand += key
-      terminal.write(key)
-    }
-  })
-
-  terminal.writeln('Redis CLI - 输入命令后按回车执行')
-  terminal.writeln('示例: SET key value / GET key / DEL key')
-  terminal.write('\r\n> ')
+  terminalService.value = createTerminalService()
+  terminalService.value.initTerminal(terminalRef.value, executeTerminalCommand)
 }
 
 const executeTerminalCommand = async (command: string) => {
-  if (!terminal) return
+  if (!terminalService.value) return
   
   if (!command.trim()) {
-    terminal.write('\r\n> ')
+    terminalService.value.write('\r\n> ')
+    return
+  }
+
+  // 处理 clear 命令
+  if (command.toLowerCase() === 'clear') {
+    terminalService.value.clear()
+    commandHistory.value = []
+    historyIndex.value = -1
+    terminalService.value.write('> ')
     return
   }
   
@@ -198,24 +207,52 @@ const executeTerminalCommand = async (command: string) => {
     const response = await redisApi.executeCommand(command)
     const result = response.data?.result || response.data
     if (typeof result === 'string') {
-      terminal.writeln(result)
+      terminalService.value.writeln(result)
     } else if (result === null || result === undefined) {
-      terminal.writeln('(nil)')
+      terminalService.value.writeln('(nil)')
     } else {
-      terminal.writeln(JSON.stringify(result))
+      terminalService.value.writeln(JSON.stringify(result))
+    }
+
+    // 检查命令是否操作了当前选中的键
+    const commandLower = command.toLowerCase()
+    const currentKey = selectedKey.value
+    if (currentKey) {
+      // 检查命令是否包含当前键
+      const keyInCommand = commandLower.includes(currentKey.toLowerCase())
+      // 检查是否是修改操作
+      const isModifyCommand = commandLower.startsWith('set') || 
+                            commandLower.startsWith('del') ||
+                            commandLower.startsWith('lpush') ||
+                            commandLower.startsWith('rpush') ||
+                            commandLower.startsWith('lpop') ||
+                            commandLower.startsWith('rpop') ||
+                            commandLower.startsWith('hset') ||
+                            commandLower.startsWith('hdel') ||
+                            commandLower.startsWith('sadd') ||
+                            commandLower.startsWith('srem') ||
+                            commandLower.startsWith('zadd') ||
+                            commandLower.startsWith('zrem')
+
+      if (keyInCommand && isModifyCommand) {
+        // 如果是修改操作，刷新当前键的详情
+        await handleKeyClick(currentKey)
+      }
     }
   } catch (error: any) {
-    terminal.writeln(`错误: ${error.response?.data?.error || '命令执行失败'}`)
+    terminalService.value.writeln(`错误: ${error.response?.data?.error || '命令执行失败'}`)
   }
-  terminal.write('\r\n> ')
+  terminalService.value.write('> ')
 }
 
 const handleResize = () => {
-  fitAddon?.fit()
+  terminalService.value?.resize()
 }
 
-const getTypeColor = (type: string) => {
-  switch (type.toLowerCase()) {
+const getTypeColor = (type: string | undefined | null) => {
+  if (!type || typeof type !== 'string') return 'default'
+  const typeLower = type.toLowerCase()
+  switch (typeLower) {
     case 'string':
       return 'success'
     case 'list':
@@ -235,20 +272,36 @@ const getTypeColor = (type: string) => {
 watch(showTerminal, (value) => {
   nextTick(() => {
     if (value) {
-      if (!terminal) {
+      if (!terminalService.value) {
         initTerminal()
       } else {
-        fitAddon?.fit()
-        terminal?.refresh(0, terminal?.rows - 1)
+        terminalService.value.resize()
       }
     }
   })
 })
 
 const checkConnection = async () => {
-  const isConnected = await connectionState.checkConnection()
-  if (!isConnected) {
-    showReconnectModal.value = true
+  try {
+    const isConnected = await connectionState.checkConnection()
+    if (!isConnected) {
+      messageHandler.value?.error('连接已断开')
+      router.push('/connect')
+    }
+  } catch (error) {
+    messageHandler.value?.error('连接检查失败')
+    router.push('/connect')
+  }
+}
+
+const handleDisconnect = async () => {
+  const result = await connectionState.disconnect()
+  if (result.success) {
+    messageHandler.value?.success(result.message)
+    router.push('/connect')
+  } else {
+    messageHandler.value?.error(result.message)
+    router.push('/connect')
   }
 }
 
@@ -257,43 +310,97 @@ const handleReconnect = async () => {
   try {
     const success = await connectionState.reconnect()
     if (success) {
-      message.success('重新连接成功')
+      messageHandler.value?.success('重新连接成功')
       showReconnectModal.value = false
       await loadKeys()
     } else {
-      message.error('重新连接失败')
+      messageHandler.value?.error('重新连接失败')
     }
   } catch (error: any) {
-    message.error(error.response?.data?.error || '重新连接失败')
+    messageHandler.value?.error(error.response?.data?.error || '重新连接失败')
   } finally {
     reconnecting.value = false
   }
 }
 
-const handleDisconnect = async () => {
-  try {
-    await redisApi.disconnect()
-    connectionState.clearState()
-    message.success('已断开连接')
-    router.push('/')
-  } catch (error: any) {
-    message.error(error.response?.data?.error || '断开连接失败')
-  }
-}
+// 定期检查连接状态
+let checkInterval: number | null = null
 
 onMounted(() => {
-  checkConnection()
-  loadKeys()
+  // 初始化终端
   initTerminal()
+  // 加载键列表
+  loadKeys()
+  // 开始定期检查连接状态，每60秒检查一次
+  checkInterval = window.setInterval(checkConnection, 60000)
   window.addEventListener('resize', handleResize)
 })
 
 onUnmounted(() => {
-  window.removeEventListener('resize', handleResize)
+  // 清理定时器
+  if (checkInterval) {
+    clearInterval(checkInterval)
+  }
   // 清理终端
-  if (terminal) {
-    terminal.dispose()
-    terminal = null
+  terminalService.value?.dispose()
+  window.removeEventListener('resize', handleResize)
+  if (terminalRef.value) {
+    terminalRef.value.removeEventListener('paste', () => {});
+    terminalRef.value.removeEventListener('compositionstart', () => {});
+    terminalRef.value.removeEventListener('compositionupdate', () => {});
+    terminalRef.value.removeEventListener('compositionend', () => {});
+  }
+});
+
+// 在 script setup 部分添加表格列定义
+const listColumns = [
+  { title: '索引', key: 'index', width: 80 },
+  { title: '值', key: 'value' }
+]
+
+const setColumns = [
+  { title: '成员', key: 'value' }
+]
+
+const hashColumns = [
+  { title: '字段', key: 'field' },
+  { title: '值', key: 'value' }
+]
+
+const zsetColumns = [
+  { title: '成员', key: 'member' },
+  { title: '分数', key: 'score', width: 120 }
+]
+
+// 在 script setup 部分添加计算属性
+const getLengthLabel = computed(() => {
+  switch (keyType.value) {
+    case 'list':
+      return '列表长度'
+    case 'set':
+      return '集合大小'
+    case 'hash':
+      return '字段数量'
+    case 'zset':
+      return '成员数量'
+    default:
+      return '长度'
+  }
+})
+
+const getLengthValue = computed(() => {
+  if (!keyValue.value) return 0
+  switch (keyType.value) {
+    case 'list':
+      return Array.isArray(keyValue.value) ? keyValue.value.length : 0
+    case 'set':
+      return Array.isArray(keyValue.value) ? keyValue.value.length : 0
+    case 'hash':
+      return Object.keys(keyValue.value).length
+    case 'zset':
+      return Array.isArray(keyValue.value) ? keyValue.value.length : 0
+    default:
+      return 0
   }
 })
 </script>
@@ -320,9 +427,9 @@ onUnmounted(() => {
             <n-timeline-item
               v-for="key in keyTree"
               :key="key"
-              :type="getTypeColor(keyTypes.get(key) || '')"
+              :type="getTypeColor(keyTypes.get(key))"
               :content="key"
-              :time="keyTypes.get(key)"
+              :time="keyTypes.get(key) || 'unknown'"
               :class="{ 'timeline-item-selected': key === selectedKey }"
               @click="handleKeyClick(key)"
             />
@@ -351,14 +458,8 @@ onUnmounted(() => {
             <n-descriptions-item label="类型">
               {{ keyType }}
             </n-descriptions-item>
-            <n-descriptions-item label="TTL">
-              {{ ttl === -1 ? '永久' : `${ttl}秒` }}
-            </n-descriptions-item>
-            <n-descriptions-item v-if="keyType === 'list'" label="长度">
-              {{ Array.isArray(keyValue) ? keyValue.length : 0 }}
-            </n-descriptions-item>
-            <n-descriptions-item v-if="keyType === 'hash'" label="字段数">
-              {{ typeof keyValue === 'object' ? Object.keys(keyValue).length : 0 }}
+            <n-descriptions-item :label="getLengthLabel">
+              {{ getLengthValue }}
             </n-descriptions-item>
           </n-descriptions>
 
@@ -374,12 +475,58 @@ onUnmounted(() => {
           </n-input-number>
 
           <!-- 值编辑区域 -->
-          <n-input
-            v-model:value="keyValue"
-            type="textarea"
-            placeholder="值"
-            :autosize="{ minRows: 3, maxRows: 15 }"
-          />
+          <template v-if="keyType === 'string'">
+            <n-input
+              v-model:value="keyValue"
+              type="textarea"
+              placeholder="值"
+              :autosize="{ minRows: 3, maxRows: 15 }"
+            />
+          </template>
+
+          <!-- List 类型显示 -->
+          <template v-if="keyType === 'list'">
+            <n-data-table
+              :columns="listColumns"
+              :data="Array.isArray(keyValue) ? keyValue.map((item, index) => ({ index, value: String(item) })) : []"
+              :pagination="{ pageSize: 10 }"
+              :bordered="false"
+              striped
+            />
+          </template>
+
+          <!-- Set 类型显示 -->
+          <template v-if="keyType === 'set'">
+            <n-data-table
+              :columns="setColumns"
+              :data="Array.isArray(keyValue) ? keyValue.map(item => ({ value: String(item) })) : []"
+              :pagination="{ pageSize: 10 }"
+              :bordered="false"
+              striped
+            />
+          </template>
+
+          <!-- Hash 类型显示 -->
+          <template v-if="keyType === 'hash'">
+            <n-data-table
+              :columns="hashColumns"
+              :data="Object.entries(keyValue || {}).map(([field, value]) => ({ field, value: String(value) }))"
+              :pagination="{ pageSize: 10 }"
+              :bordered="false"
+              striped
+            />
+          </template>
+
+          <!-- ZSet 类型显示 -->
+          <template v-if="keyType === 'zset'">
+            <n-data-table
+              :columns="zsetColumns"
+              :data="Array.isArray(keyValue) ? keyValue.map(item => ({ member: String(item.member), score: item.score })) : []"
+              :pagination="{ pageSize: 10 }"
+              :bordered="false"
+              striped
+            />
+          </template>
 
           <!-- 操作按钮 -->
           <n-space justify="end">
@@ -387,7 +534,7 @@ onUnmounted(() => {
               type="error"
               strong
               secondary
-              @click="handleDelete"
+              @click="handleDeleteConfirm"
               :loading="deleting"
             >
               <template #icon>
@@ -399,7 +546,7 @@ onUnmounted(() => {
               type="success"
               strong
               secondary
-              @click="handleSave"
+              @click="handleSaveConfirm"
               :loading="saving"
             >
               <template #icon>
@@ -416,7 +563,7 @@ onUnmounted(() => {
       <div class="cli-trigger" @click="showTerminal = !showTerminal">
         <n-button text size="small">
           <template #icon>
-            <n-icon><component :is="showTerminal ? 'CloseOutline' : 'TerminalOutline'" /></n-icon>
+            <n-icon><component :is="showTerminal ? CloseOutline : TerminalOutline" /></n-icon>
           </template>
           {{ showTerminal ? '关闭终端' : '打开终端' }}
         </n-button>
@@ -424,7 +571,11 @@ onUnmounted(() => {
 
       <!-- 终端区域 -->
       <div v-show="showTerminal" class="terminal-area">
-        <div ref="terminalRef" class="terminal-container"></div>
+        <div 
+          ref="terminalRef" 
+          class="terminal-container"
+          tabindex="0"
+        ></div>
       </div>
     </div>
 
@@ -439,6 +590,31 @@ onUnmounted(() => {
       negative-text="取消"
       :positive-button-loading="reconnecting"
       @positive-click="handleReconnect"
+    />
+
+    <!-- 添加确认对话框 -->
+    <n-modal
+      v-model:show="showDeleteConfirm"
+      preset="dialog"
+      type="warning"
+      title="确认删除"
+      content="确定要删除这个键吗？此操作不可恢复。"
+      positive-text="确认删除"
+      negative-text="取消"
+      :positive-button-loading="deleting"
+      @positive-click="confirmDelete"
+    />
+
+    <n-modal
+      v-model:show="showSaveConfirm"
+      preset="dialog"
+      type="info"
+      title="确认保存"
+      content="确定要保存对当前键的修改吗？"
+      positive-text="确认保存"
+      negative-text="取消"
+      :positive-button-loading="saving"
+      @positive-click="confirmSave"
     />
   </div>
 </template>
@@ -562,6 +738,7 @@ body {
   gap: 16px;
   height: 100%;
   overflow: hidden;
+  position: relative;
 }
 
 .key-name {
@@ -628,7 +805,33 @@ body {
   height: 100%;
   padding: 8px 16px;
   box-sizing: border-box;
-  background-color: #1e1e1e;  /* 确保容器也使用相同的背景色 */
+  background-color: #1e1e1e;
+  outline: none;
+}
+
+.terminal-container:focus {
+  outline: none;
+}
+
+
+:deep(.xterm-viewport) {
+  overflow-y: auto !important;
+  background-color: #1e1e1e !important;
+}
+
+:deep(.xterm-screen) {
+  text-align: left;
+}
+
+:deep(.xterm-rows) {
+  font-family: "JetBrains Mono", "Microsoft YaHei", "微软雅黑", monospace !important;
+  font-size: 14px;
+  line-height: 1.2;
+  letter-spacing: 0;
+}
+
+:deep(.xterm-char) {
+  width: auto !important;
 }
 
 :deep(.xterm) {
@@ -636,12 +839,46 @@ body {
   height: 100%;
 }
 
-:deep(.xterm-viewport) {
-  overflow-y: auto !important;
-  background-color: #1e1e1e !important;  /* 强制使用深色背景 */
+.details-panel {
+  flex: 1;
+  padding: 16px;
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 100%;
 }
 
-:deep(.xterm-screen) {
+.details-content {
+  width: 100%;
+  max-width: 800px;
+  margin: 0 auto;
+  text-align: center;
+}
+
+.details-content pre {
+  white-space: pre-wrap;
+  word-break: break-all;
   text-align: left;
+  background: #f5f5f5;
+  padding: 16px;
+  border-radius: 4px;
+  margin: 0;
+}
+
+.details-content .n-empty {
+  margin: 0 auto;
+}
+
+/* 添加空状态提示的样式 */
+.content-area :deep(.n-empty) {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  margin: 0;
 }
 </style>

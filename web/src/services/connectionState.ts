@@ -1,65 +1,75 @@
+import { ref } from 'vue'
 import { redisApi } from '../api/redis'
+import { useMessage } from 'naive-ui'
 
-interface ConnectionState {
+const isConnected = ref(false)
+const connectionConfig = ref<{
   host: string
   port: number
-  password: string
-  db: number
-  isConnected: boolean
-}
-
-const STORAGE_KEY = 'redis_connection_state'
+  password?: string
+} | null>(null)
 
 export const connectionState = {
-  getState(): ConnectionState | null {
-    try {
-      const state = localStorage.getItem(STORAGE_KEY)
-      return state ? JSON.parse(state) : null
-    } catch (error) {
-      console.error('读取连接状态失败:', error)
-      return null
-    }
+  isConnected,
+  connectionConfig,
+
+  setConnected(connected: boolean) {
+    isConnected.value = connected
   },
 
-  setState(state: ConnectionState) {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
-    } catch (error) {
-      console.error('保存连接状态失败:', error)
-    }
+  setConfig(config: { host: string; port: number; password?: string }) {
+    connectionConfig.value = config
   },
 
   clearState() {
-    try {
-      localStorage.removeItem(STORAGE_KEY)
-    } catch (error) {
-      console.error('清除连接状态失败:', error)
-    }
+    isConnected.value = false
+    connectionConfig.value = null
   },
 
-  async checkConnection(): Promise<boolean> {
+  async checkConnection() {
     try {
-      await redisApi.ping()
-      return true
+      const response = await redisApi.ping()
+      isConnected.value = response.data === 'PONG'
+      return isConnected.value
     } catch (error) {
+      isConnected.value = false
       return false
     }
   },
 
-  async reconnect(): Promise<boolean> {
-    const state = this.getState()
-    if (!state) return false
-
+  async reconnect() {
+    if (!connectionConfig.value) return false
     try {
-      await redisApi.connect({
-        host: state.host,
-        port: state.port,
-        password: state.password,
-        db: state.db
-      })
+      await redisApi.connect(connectionConfig.value)
+      isConnected.value = true
       return true
     } catch (error) {
+      isConnected.value = false
       return false
+    }
+  },
+
+  async disconnect() {
+    try {
+      const response = await redisApi.disconnect()
+      if (response.data?.message === 'Disconnected successfully') {
+        this.clearState()
+        return { success: true, message: '已断开连接' };
+      }
+      
+      this.clearState()
+      return { success: true, message: '已断开连接' };
+    } catch (error: any) {
+      let errorMessage = '断开连接失败'
+      if (error && typeof error === 'object') {
+        if (error.response?.data?.error) {
+          errorMessage = error.response.data.error
+        } else if (error.message) {
+          errorMessage = error.message
+        }
+      }
+      this.clearState()
+      return { success: false, message: errorMessage };
     }
   }
-} 
+}

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { darkTheme, lightTheme } from 'naive-ui'
 import {
   LogoReddit as LogoRedis,
@@ -9,8 +9,10 @@ import {
   LogOutOutline
 } from '@vicons/ionicons5'
 import MessageHandler from './components/MessageHandler.vue'
+import { connectionState } from './services/connectionState'
 
 const router = useRouter()
+const currentRoute = useRoute()
 const isDark = ref(true)
 const isConnected = computed(() => router.currentRoute.value.path !== '/')
 const theme = computed(() => isDark.value ? darkTheme : lightTheme)
@@ -20,8 +22,15 @@ const toggleTheme = () => {
   isDark.value = !isDark.value
 }
 
-const handleDisconnect = () => {
-  messageHandler.value?.handleDisconnect()
+const handleDisconnect = async () => {
+  const result = await connectionState.disconnect()
+  if (result.success) {
+    messageHandler.value?.success(result.message)
+    router.push('/connect')
+  } else {
+    messageHandler.value?.error(result.message)
+    router.push('/connect')
+  }
 }
 </script>
 
@@ -38,7 +47,7 @@ const handleDisconnect = () => {
               </n-icon>
               <h1>Go My Redis</h1>
             </div>
-            <n-space>
+            <div class="navbar-right">
               <n-button text @click="toggleTheme">
                 <template #icon>
                   <n-icon>
@@ -46,13 +55,17 @@ const handleDisconnect = () => {
                   </n-icon>
                 </template>
               </n-button>
-              <n-button text @click="handleDisconnect" v-if="isConnected">
+              <n-button
+                text
+                @click="handleDisconnect"
+                v-if="currentRoute.path === '/browser'"
+              >
                 <template #icon>
                   <n-icon><LogOutOutline /></n-icon>
                 </template>
                 断开连接
               </n-button>
-            </n-space>
+            </div>
           </div>
         </n-layout-header>
 
@@ -100,6 +113,24 @@ html, body {
   margin: 0;
   font-size: 20px;
   font-weight: 600;
+}
+
+.navbar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.navbar-right :deep(.n-button) {
+  height: 34px;
+  display: flex;
+  align-items: center;
+}
+
+.navbar-right :deep(.n-icon) {
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .fade-enter-active,

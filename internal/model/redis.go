@@ -13,3 +13,9 @@ type RedisKey struct {
 	Value interface{} `json:"value"`
 	TTL   int64       `json:"ttl"`
 }
+
+// ZSetMember 表示有序集合的成员
+type ZSetMember struct {
+	Member string  `json:"member"`
+	Score  float64 `json:"score"`
+}

@@ -20,6 +20,10 @@ const router = createRouter({
       path: '/browser',
       name: 'browser',
       component: Browser
+    },
+    {
+      path: '/:pathMatch(.*)*',
+      redirect: '/'
     }
   ]
 })

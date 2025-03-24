@@ -163,3 +163,91 @@ func (h *RedisHandler) Disconnect(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "Disconnected successfully"})
 }
+
+// GetList 获取列表数据
+func (h *RedisHandler) GetList(c *gin.Context) {
+	key := c.Param("key")
+	list, err := h.redisService.GetList(key)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, list)
+}
+
+// GetListLength 获取列表长度
+func (h *RedisHandler) GetListLength(c *gin.Context) {
+	key := c.Param("key")
+	length, err := h.redisService.GetListLength(key)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, length)
+}
+
+// GetSet 获取集合数据
+func (h *RedisHandler) GetSet(c *gin.Context) {
+	key := c.Param("key")
+	set, err := h.redisService.GetSet(key)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, set)
+}
+
+// GetSetLength 获取集合长度
+func (h *RedisHandler) GetSetLength(c *gin.Context) {
+	key := c.Param("key")
+	length, err := h.redisService.GetSetLength(key)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, length)
+}
+
+// GetHash 获取哈希数据
+func (h *RedisHandler) GetHash(c *gin.Context) {
+	key := c.Param("key")
+	hash, err := h.redisService.GetHash(key)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, hash)
+}
+
+// GetHashLength 获取哈希字段数
+func (h *RedisHandler) GetHashLength(c *gin.Context) {
+	key := c.Param("key")
+	length, err := h.redisService.GetHashLength(key)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, length)
+}
+
+// GetZSet 获取有序集合数据
+func (h *RedisHandler) GetZSet(c *gin.Context) {
+	key := c.Param("key")
+	zset, err := h.redisService.GetZSet(key)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, zset)
+}
+
+// GetZSetLength 获取有序集合长度
+func (h *RedisHandler) GetZSetLength(c *gin.Context) {
+	key := c.Param("key")
+	length, err := h.redisService.GetZSetLength(key)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, length)
+}
