@@ -1,28 +1,84 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { useMessage, NCard, NSpace, NForm, NFormItem, NInput, NInputNumber, NButton, NDivider, NEmpty, NList, NListItem, NThing, NIcon, NResult } from 'naive-ui'
+import { useMessage, NCard, NSpace, NForm, NFormItem, NInput, NInputNumber, NButton, NList, NListItem, NThing, NIcon, NCollapseTransition } from 'naive-ui'
 import { redisApi } from '../api/redis'
-import { connectionHistory, type ConnectionRecord } from '../services/connectionHistory'
-import { connectionState } from '../services/connectionState'
-import { ServerOutline } from '@vicons/ionicons5'
+import { ServerOutline, ChevronDownOutline, ChevronUpOutline, TrashOutline } from '@vicons/ionicons5'
 
 const router = useRouter()
 const message = useMessage()
 const loading = ref(false)
-const historyRecords = ref<ConnectionRecord[]>([])
+
+interface ConnectionHistory {
+  host: string
+  port: number
+  username: string
+  password: string
+  db: number
+  sessionName: string
+  timestamp: number
+}
 
 const formData = ref({
   host: 'localhost',
   port: 6379,
   username: '',
   password: '',
-  db: 0
+  db: 0,
+  sessionName: 'Localhost'
 })
 
+const connectionHistory = ref<ConnectionHistory[]>([])
+
+const rules = {
+  host: {
+    required: true,
+    message: '请输入主机地址',
+    trigger: 'blur'
+  },
+  port: {
+    required: true,
+    message: '请输入端口号',
+    trigger: 'blur'
+  },
+  db: {
+    required: true,
+    message: '请选择数据库',
+    trigger: 'blur'
+  }
+}
+
 const loadHistory = () => {
-  historyRecords.value = connectionHistory.getHistory()
-  console.log('加载历史记录:', historyRecords.value)
+  const history = localStorage.getItem('redis_connection_history')
+  if (history) {
+    try {
+      const parsedHistory = JSON.parse(history)
+      connectionHistory.value = parsedHistory.slice(0, 10)
+    } catch (error) {
+      console.error('加载历史记录失败:', error)
+      connectionHistory.value = []
+    }
+  }
+}
+
+const saveToHistory = () => {
+  const newConnection: ConnectionHistory = {
+    ...formData.value,
+    timestamp: Date.now()
+  }
+  
+  connectionHistory.value = connectionHistory.value.filter(
+    (item: ConnectionHistory) => 
+      item.host !== newConnection.host || 
+      item.port !== newConnection.port || 
+      item.db !== newConnection.db
+  )
+  
+  connectionHistory.value.unshift(newConnection)
+  
+  connectionHistory.value = connectionHistory.value.slice(0, 10)
+  
+  localStorage.setItem('redis_connection_history', JSON.stringify(connectionHistory.value))
 }
 
 onMounted(() => {
@@ -32,11 +88,14 @@ onMounted(() => {
 const handleConnect = async () => {
   loading.value = true
   try {
-    await redisApi.connect(formData.value)
-    connectionHistory.addRecord(formData.value)
-    loadHistory()
-    message.success('连接成功')
-    router.push('/browser')
+    const success = await redisApi.connect(formData.value)
+    if (success) {
+      message.success('连接成功')
+      saveToHistory()
+      router.push('/browser')
+    } else {
+      message.error('连接失败')
+    }
   } catch (error: any) {
     message.error(error.response?.data?.error || '连接失败')
   } finally {
@@ -44,133 +103,167 @@ const handleConnect = async () => {
   }
 }
 
-const handleHistoryClick = (record: any) => {
-  formData.value = { ...record }
-  handleConnect()
+const handleHistoryClick = (history: ConnectionHistory) => {
+  formData.value = {
+    ...history,
+    sessionName: history.sessionName || 'Localhost'
+  }
 }
 
 const handleClearHistory = () => {
-  connectionHistory.clearHistory()
-  loadHistory()
+  connectionHistory.value = []
+  localStorage.removeItem('redis_connection_history')
   message.success('历史记录已清除')
+}
+
+const showHistory = ref(false)
+
+const toggleHistory = () => {
+  showHistory.value = !showHistory.value
 }
 </script>
 
 <template>
   <div class="connect-container">
-    <n-card title="连接到 Redis" class="connect-card">
-      <n-space vertical>
-        <n-form
-          ref="formRef"
-          :model="formData"
-          label-placement="left"
-          label-width="80"
-          require-mark-placement="right-hanging"
-        >
-          <n-form-item label="主机" path="host">
-            <n-input v-model:value="formData.host" placeholder="输入 Redis 主机地址" />
-          </n-form-item>
-          <n-form-item label="端口" path="port">
-            <n-input-number
-              v-model:value="formData.port"
-              :min="1"
-              :max="65535"
-              placeholder="输入端口号"
-            />
-          </n-form-item>
-          <n-form-item label="账号" path="username">
-            <n-input
-              v-model:value="formData.username"
-              placeholder="输入账号（可选）"
-            />
-          </n-form-item>
-          <n-form-item label="密码" path="password">
-            <n-input
-              v-model:value="formData.password"
-              type="password"
-              placeholder="输入密码（可选）"
-              show-password-on="click"
-            />
-          </n-form-item>
-          <n-form-item label="数据库" path="db">
-            <n-input-number
-              v-model:value="formData.db"
-              :min="0"
-              :max="15"
-              placeholder="选择数据库"
-            />
-          </n-form-item>
-          <div style="margin-top: 24px;">
+    <n-card title="Redis 连接" :bordered="false">
+      <n-form
+        ref="formRef"
+        :model="formData"
+        :rules="rules"
+        label-placement="left"
+        label-width="100"
+        require-mark-placement="right-hanging"
+      >
+        <n-form-item label="会话名称" path="sessionName">
+          <n-input v-model:value="formData.sessionName" placeholder="输入会话名称" />
+        </n-form-item>
+        
+        <n-form-item label="主机地址" path="host">
+          <n-input v-model:value="formData.host" placeholder="输入主机地址" />
+        </n-form-item>
+        
+        <n-form-item label="端口" path="port">
+          <n-input-number v-model:value="formData.port" :min="1" :max="65535" placeholder="输入端口" />
+        </n-form-item>
+        
+        <n-form-item label="用户名" path="username">
+          <n-input v-model:value="formData.username" placeholder="输入用户名（可选）" />
+        </n-form-item>
+        
+        <n-form-item label="密码" path="password">
+          <n-input
+            v-model:value="formData.password"
+            type="password"
+            placeholder="输入密码（可选）"
+            show-password-on="click"
+          />
+        </n-form-item>
+        
+        <n-form-item label="数据库" path="db">
+          <n-input-number v-model:value="formData.db" :min="0" :max="15" placeholder="选择数据库" />
+        </n-form-item>
+        
+        <n-form-item>
+          <div class="form-footer">
             <n-button
               type="primary"
               @click="handleConnect"
               :loading="loading"
+              :disabled="loading"
             >
               连接
             </n-button>
           </div>
-        </n-form>
+        </n-form-item>
+      </n-form>
+    </n-card>
 
-        <n-divider>历史连接</n-divider>
-        
-        <n-empty v-if="historyRecords.length === 0" description="暂无历史记录" />
-        <n-list v-else>
-          <n-list-item v-for="record in historyRecords" :key="record.timestamp">
+    <!-- 历史会话列表 -->
+    <n-card v-if="connectionHistory.length > 0" title="历史会话" :bordered="false" class="history-card">
+      <template #header-extra>
+        <n-space>
+          <n-button
+            circle
+            @click="toggleHistory"
+          >
+            <template #icon>
+              <n-icon>
+                <component :is="showHistory ? ChevronDownOutline : ChevronUpOutline" />
+              </n-icon>
+            </template>
+          </n-button>
+          <n-button
+            circle
+            @click="handleClearHistory"
+            title="清除历史"
+          >
+          <template #icon>
+              <n-icon>
+                <component :is="TrashOutline" />
+              </n-icon>
+            </template>
+          </n-button>
+        </n-space>
+      </template>
+      
+      <n-collapse-transition :show="showHistory">
+        <n-list>
+          <n-list-item v-for="history in connectionHistory" :key="history.timestamp">
             <n-thing
-              :title="`${record.host}:${record.port}`"
-              :description="`数据库: ${record.db}`"
-              @click="handleHistoryClick(record)"
+              :title="history.sessionName"
+              :description="`${history.host}:${history.port} (DB: ${history.db})`"
+              @click="handleHistoryClick(history)"
             >
               <template #avatar>
-                <n-icon size="24" color="var(--primary-color)">
-                  <ServerOutline />
-                </n-icon>
+                <n-icon><ServerOutline /></n-icon>
               </template>
             </n-thing>
           </n-list-item>
         </n-list>
-
-        <n-button
-          v-if="historyRecords.length > 0"
-          type="error"
-          ghost
-          @click="handleClearHistory"
-        >
-          清除历史记录
-        </n-button>
-      </n-space>
+      </n-collapse-transition>
     </n-card>
   </div>
 </template>
 
 <style scoped>
 .connect-container {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  min-height: calc(100vh - 112px);
+  max-width: 600px;
+  margin: 0 auto;
+  padding: 20px;
 }
 
-.connect-card {
-  width: 100%;
-  max-width: 480px;
-}
-
-:deep(.n-card-header) {
-  text-align: center;
-}
-
-:deep(.n-card-header__main) {
-  font-size: 24px;
-  font-weight: 500;
+.history-card {
+  margin-top: 20px;
 }
 
 :deep(.n-list-item) {
   cursor: pointer;
+  padding: 8px;
+  border-radius: 4px;
   transition: background-color 0.3s;
 }
 
 :deep(.n-list-item:hover) {
   background-color: var(--n-item-color-hover);
+}
+
+:deep(.n-card-header-extra) {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+:deep(.n-form-item:last-child) {
+  margin-bottom: 0;
+}
+
+:deep(.n-form-item:last-child .n-form-item-feedback-wrapper) {
+  display: none;
+}
+
+:deep(.n-form-item:last-child .n-form-item-blank) {
+  display: flex;
+  justify-content: flex-end;
+  margin-left: 100px;
 }
 </style> 

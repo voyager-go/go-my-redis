@@ -1,44 +1,50 @@
 package main
 
 import (
-	"go-my-redis/internal/handler"
 	"log"
+	"os/exec"
+	"runtime"
+	"time"
+
+	"go-my-redis/internal/handler"
 
 	"github.com/gin-gonic/gin"
 )
+
+func openBrowser(url string) {
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "windows":
+		cmd = exec.Command("cmd", "/c", "start", url)
+	case "darwin":
+		cmd = exec.Command("open", url)
+	default: // "linux", "freebsd", "openbsd", "netbsd"
+		cmd = exec.Command("xdg-open", url)
+	}
+	if err := cmd.Start(); err != nil {
+		log.Printf("无法自动打开浏览器: %v", err)
+	}
+}
 
 func main() {
 	r := gin.Default()
 	redisHandler := handler.NewRedisHandler()
 
-	// 配置CORS
-	r.Use(func(c *gin.Context) {
-		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
-		c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-		if c.Request.Method == "OPTIONS" {
-			c.AbortWithStatus(204)
-			return
-		}
-		c.Next()
-	})
-
-	// API路由组
+	// API 路由
 	api := r.Group("/api")
 	{
-		// Redis连接管理
+		// Redis 连接管理
 		api.POST("/connect", redisHandler.Connect)
 		api.POST("/disconnect", redisHandler.Disconnect)
+
+		// Redis 命令执行
 		api.POST("/command", redisHandler.ExecuteCommand)
 
 		// 键管理
 		api.GET("/keys", redisHandler.GetKeys)
 		api.GET("/key/:key", redisHandler.GetKey)
-		api.POST("/key", redisHandler.SetKey)
-		api.DELETE("/key/:key", redisHandler.DeleteKey)
-		api.GET("/type/:key", redisHandler.GetType)
-		api.GET("/ttl/:key", redisHandler.GetTTL)
-		api.POST("/expire", redisHandler.Expire)
+		api.GET("/key/:key/type", redisHandler.GetType)
+		api.GET("/key/:key/ttl", redisHandler.GetTTL)
 
 		// 列表操作
 		api.GET("/list/:key", redisHandler.GetList)
@@ -57,5 +63,16 @@ func main() {
 		api.GET("/zset/:key/length", redisHandler.GetZSetLength)
 	}
 
-	log.Fatal(r.Run(":8080"))
+	// 静态文件服务
+	r.NoRoute(gin.WrapH(handler.GetStaticHandler()))
+
+	// 启动服务器
+	go func() {
+		time.Sleep(time.Second)
+		openBrowser("http://localhost:8080")
+	}()
+
+	if err := r.Run(":8080"); err != nil {
+		log.Fatal("服务器启动失败:", err)
+	}
 }

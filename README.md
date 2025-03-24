@@ -18,7 +18,7 @@ Go-My-Redis 是一个使用 Golang 和 Vue.js 开发的现代化 Redis 管理工
 - Golang
 - Gin Web 框架
 - Redis 客户端库
-- WebSocket 支持 [暂不支持]
+- WebSocket [暂不支持]
 
 ### 前端
 - Vue.js 3
@@ -27,6 +27,11 @@ Go-My-Redis 是一个使用 Golang 和 Vue.js 开发的现代化 Redis 管理工
 - Vite 构建工具
 
 ## 快速开始
+
+```shell
+chmod +x build.sh
+./build.sh
+```
 
 ## 贡献指南
 

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed, watch, nextTick } from 'vue'
-import { NInputGroup, NInput, NButton, NIcon, NScrollbar, NSpace, NText, NInputNumber, NEmpty, NTimeline, NTimelineItem, NTag, NDescriptions, NDescriptionsItem, NModal, NDataTable } from 'naive-ui'
+import { NInputGroup, NInput, NButton, NIcon, NScrollbar, NSpace, NInputNumber, NEmpty, NTimeline, NTimelineItem, NTag, NDescriptions, NDescriptionsItem, NModal, NDataTable } from 'naive-ui'
 import { redisApi } from '../api/redis'
 import { connectionState } from '../services/connectionState'
 import { SearchOutline, TrashOutline, SaveOutline, TerminalOutline, CloseOutline } from '@vicons/ionicons5'

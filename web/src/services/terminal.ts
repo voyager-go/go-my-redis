@@ -1,7 +1,7 @@
 import { Terminal } from 'xterm'
 import { FitAddon } from 'xterm-addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
-import { WebglAddon } from 'xterm-addon-webgl'
+import { WebglAddon } from '@xterm/addon-webgl'
 import 'xterm/css/xterm.css'
 
 export interface TerminalService {
