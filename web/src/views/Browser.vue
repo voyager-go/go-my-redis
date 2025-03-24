@@ -347,7 +347,7 @@ onUnmounted(() => {
 
         <n-space vertical size="large">
           <!-- 修改描述列表为左右布局 -->
-          <n-descriptions bordered :column="2" size="small" label-placement="left">
+          <n-descriptions v-if="keyType !== 'string'" bordered :column="2" size="small" label-placement="left">
             <n-descriptions-item label="类型">
               {{ keyType }}
             </n-descriptions-item>
@@ -406,17 +406,6 @@ onUnmounted(() => {
                 <n-icon><SaveOutline /></n-icon>
               </template>
               保存
-            </n-button>
-            <n-button
-              type="warning"
-              strong
-              secondary
-              @click="handleDisconnect"
-            >
-              <template #icon>
-                <n-icon><CloseOutline /></n-icon>
-              </template>
-              断开连接
             </n-button>
           </n-space>
         </n-space>
