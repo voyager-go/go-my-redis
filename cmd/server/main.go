@@ -28,15 +28,17 @@ func main() {
 	{
 		// Redis连接管理
 		api.POST("/connect", redisHandler.Connect)
+		api.POST("/disconnect", redisHandler.Disconnect)
+		api.POST("/command", redisHandler.ExecuteCommand)
+
+		// 键管理
 		api.GET("/keys", redisHandler.GetKeys)
 		api.GET("/key/:key", redisHandler.GetKey)
 		api.POST("/key", redisHandler.SetKey)
 		api.DELETE("/key/:key", redisHandler.DeleteKey)
 		api.GET("/type/:key", redisHandler.GetType)
 		api.GET("/ttl/:key", redisHandler.GetTTL)
-		api.POST("/command", redisHandler.ExecuteCommand)
 		api.POST("/expire", redisHandler.Expire)
-		api.POST("/disconnect", redisHandler.Disconnect)
 
 		// 列表操作
 		api.GET("/list/:key", redisHandler.GetList)

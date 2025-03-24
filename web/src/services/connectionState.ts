@@ -1,6 +1,5 @@
 import { ref } from 'vue'
 import { redisApi } from '../api/redis'
-import { useMessage } from 'naive-ui'
 
 const isConnected = ref(false)
 const connectionConfig = ref<{
@@ -51,14 +50,10 @@ export const connectionState = {
 
   async disconnect() {
     try {
-      const response = await redisApi.disconnect()
-      if (response.data?.message === 'Disconnected successfully') {
-        this.clearState()
-        return { success: true, message: '已断开连接' };
-      }
-      
-      this.clearState()
-      return { success: true, message: '已断开连接' };
+      await redisApi.disconnect()
+      isConnected.value = false
+      connectionConfig.value = null
+      return { success: true, message: '已断开连接' }
     } catch (error: any) {
       let errorMessage = '断开连接失败'
       if (error && typeof error === 'object') {
@@ -68,8 +63,9 @@ export const connectionState = {
           errorMessage = error.message
         }
       }
-      this.clearState()
-      return { success: false, message: errorMessage };
+      isConnected.value = false
+      connectionConfig.value = null
+      return { success: false, message: errorMessage }
     }
   }
 }

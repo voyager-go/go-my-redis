@@ -7,7 +7,6 @@ import { SearchOutline, TrashOutline, SaveOutline, TerminalOutline, CloseOutline
 import '@fontsource/jetbrains-mono'
 import { createTerminalService, type TerminalService } from '../services/terminal'
 import { useRouter } from 'vue-router'
-import MessageHandler from '../components/MessageHandler.vue'
 import 'xterm/css/xterm.css'
 
 const router = useRouter()
@@ -34,31 +33,27 @@ const historyIndex = ref(-1)
 const showDeleteConfirm = ref(false)
 const showSaveConfirm = ref(false)
 
+// 添加心跳检测相关的变量
+let heartbeatInterval: number | null = null
+let reconnectAttempts = 0
+const MAX_RECONNECT_ATTEMPTS = 3
+const HEARTBEAT_INTERVAL = 15000 // 15秒发送一次心跳
+const RECONNECT_INTERVAL = 5000 // 5秒重连一次
+
 const loadKeys = async () => {
   try {
     const response = await redisApi.getKeys(searchPattern.value)
-    keyTree.value = response.rdb_keys || []
+    keyTree.value = response.result || []
     selectedKey.value = ''
     keyValue.value = ''
     keyType.value = ''
     ttl.value = -1
     initialTTL.value = -1
     keyTypes.value.clear() // 清空之前的类型缓存
-    
-    // 获取所有键的类型
-    const typePromises = keyTree.value.map(async (key) => {
-      try {
-        const typeResponse = await redisApi.type(key)
-        // 从响应中提取类型值
-        const typeStr = String(typeResponse.data || 'unknown')
-        keyTypes.value.set(key, typeStr)
-      } catch (error) {
-        console.error(`获取键 ${key} 的类型失败:`, error)
-        keyTypes.value.set(key, 'unknown')
-      }
-    })
-    
-    await Promise.all(typePromises)
+
+    // 加载前20个键的类型
+    const keysToLoad = keyTree.value.slice(0, 20)
+    await Promise.all(keysToLoad.map(key => loadKeyType(key)))
   } catch (error: any) {
     messageHandler.value?.error(error.response?.data?.error || '加载键列表失败')
     keyTree.value = []
@@ -66,6 +61,39 @@ const loadKeys = async () => {
     ttl.value = -1
     initialTTL.value = -1
   }
+}
+
+// 添加懒加载类型的方法
+const loadKeyType = async (key: string) => {
+  if (keyTypes.value.has(key)) return // 如果已经加载过类型，就不再重复加载
+  
+  try {
+    const typeResponse = await redisApi.type(key)
+    const typeStr = String(typeResponse.result || 'unknown')
+    keyTypes.value.set(key, typeStr)
+  } catch (error) {
+    console.error(`获取键 ${key} 的类型失败:`, error)
+    keyTypes.value.set(key, 'unknown')
+  }
+}
+
+// 修改滚动处理函数，只处理前20个键的类型加载
+const handleScroll = async (e: Event) => {
+  const target = e.target as HTMLElement
+  const scrollTop = target.scrollTop
+  const clientHeight = target.clientHeight
+  
+  // 只处理前20个键
+  const visibleKeys = keyTree.value.slice(0, 20).slice(
+    Math.floor(scrollTop / 40),
+    Math.ceil((scrollTop + clientHeight) / 40)
+  )
+  
+  // 只加载还未加载过类型的键
+  const keysToLoad = visibleKeys.filter(key => !keyTypes.value.has(key))
+  
+  // 批量加载可见键的类型
+  await Promise.all(keysToLoad.map(key => loadKeyType(key)))
 }
 
 const handleSearch = () => {
@@ -77,7 +105,7 @@ const handleKeyClick = async (key: string) => {
     selectedKey.value = key
     const typeResponse = await redisApi.type(key)
     // 从响应中提取类型值
-    const typeStr = String(typeResponse.data || 'unknown')
+    const typeStr = String(typeResponse.result || 'unknown')
     keyType.value = typeStr
     keyTypes.value.set(key, typeStr)
     
@@ -86,23 +114,23 @@ const handleKeyClick = async (key: string) => {
     switch (typeStr) {
       case 'string':
         response = await redisApi.getKey(key)
-        keyValue.value = response.value || ''
+        keyValue.value = response.result || ''
         break
       case 'list':
         response = await redisApi.getList(key)
-        keyValue.value = response.data
+        keyValue.value = response || []
         break
       case 'set':
         response = await redisApi.getSet(key)
-        keyValue.value = response.data
+        keyValue.value = response || []
         break
       case 'hash':
         response = await redisApi.getHash(key)
-        keyValue.value = response.data
+        keyValue.value = response || {}
         break
       case 'zset':
         response = await redisApi.getZSet(key)
-        keyValue.value = response.data
+        keyValue.value = response || []
         break
       default:
         keyValue.value = ''
@@ -110,7 +138,7 @@ const handleKeyClick = async (key: string) => {
 
     const ttlResponse = await redisApi.ttl(key)
     // 确保 TTL 是数字类型
-    ttl.value = Number(ttlResponse.data)
+    ttl.value = Number(ttlResponse.result)
     initialTTL.value = ttl.value
   } catch (error: any) {
     messageHandler.value?.error(error.response?.data?.error || '加载键值失败')
@@ -181,9 +209,13 @@ const confirmSave = async () => {
 }
 
 const initTerminal = () => {
-  if (!terminalRef.value) return
-  terminalService.value = createTerminalService()
-  terminalService.value.initTerminal(terminalRef.value, executeTerminalCommand)
+  if (terminalRef.value && terminalService.value) {
+    try {
+      terminalService.value.initTerminal(terminalRef.value, executeTerminalCommand)
+    } catch (error) {
+      console.error('初始化终端时出错:', error)
+    }
+  }
 }
 
 const executeTerminalCommand = async (command: string) => {
@@ -205,17 +237,23 @@ const executeTerminalCommand = async (command: string) => {
   
   try {
     const response = await redisApi.executeCommand(command)
-    const result = response.data?.result || response.data
-    if (typeof result === 'string') {
-      terminalService.value.writeln(result)
+    const result = response.result || response.data?.result || response.data
+    
+    // 根据命令类型处理返回值
+    const commandLower = command.toLowerCase()
+    if (commandLower.startsWith('set')) {
+      terminalService.value.writeln('OK')
     } else if (result === null || result === undefined) {
       terminalService.value.writeln('(nil)')
+    } else if (typeof result === 'string') {
+      terminalService.value.writeln(result)
+    } else if (Array.isArray(result)) {
+      terminalService.value.writeln(JSON.stringify(result))
     } else {
       terminalService.value.writeln(JSON.stringify(result))
     }
 
     // 检查命令是否操作了当前选中的键
-    const commandLower = command.toLowerCase()
     const currentKey = selectedKey.value
     if (currentKey) {
       // 检查命令是否包含当前键
@@ -283,14 +321,17 @@ watch(showTerminal, (value) => {
 
 const checkConnection = async () => {
   try {
+    // 发送 PING 命令来保持连接活跃
+    await redisApi.executeCommand('PING')
     const isConnected = await connectionState.checkConnection()
     if (!isConnected) {
       messageHandler.value?.error('连接已断开')
-      router.push('/connect')
+      showReconnectModal.value = true
     }
   } catch (error) {
-    messageHandler.value?.error('连接检查失败')
-    router.push('/connect')
+    console.error('检查连接状态时出错:', error)
+    messageHandler.value?.error('检查连接状态失败')
+    showReconnectModal.value = true
   }
 }
 
@@ -305,6 +346,19 @@ const handleDisconnect = async () => {
   }
 }
 
+// 修改心跳检测函数
+const sendHeartbeat = async () => {
+  try {
+    await redisApi.executeCommand('PING')
+  } catch (error) {
+    console.error('心跳检测失败:', error)
+    if (!showReconnectModal.value) {
+      showReconnectModal.value = true
+    }
+  }
+}
+
+// 修改重连处理函数
 const handleReconnect = async () => {
   reconnecting.value = true
   try {
@@ -312,47 +366,86 @@ const handleReconnect = async () => {
     if (success) {
       messageHandler.value?.success('重新连接成功')
       showReconnectModal.value = false
+      reconnectAttempts = 0 // 重置重连次数
       await loadKeys()
     } else {
-      messageHandler.value?.error('重新连接失败')
+      reconnectAttempts++
+      if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+        messageHandler.value?.error('重连次数过多，请检查连接配置')
+        router.push('/connect')
+      } else {
+        messageHandler.value?.error(`重新连接失败，${MAX_RECONNECT_ATTEMPTS - reconnectAttempts}次重试机会`)
+        // 延迟后自动重试
+        setTimeout(handleReconnect, RECONNECT_INTERVAL)
+      }
     }
   } catch (error: any) {
-    messageHandler.value?.error(error.response?.data?.error || '重新连接失败')
+    reconnectAttempts++
+    if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+      messageHandler.value?.error('重连次数过多，请检查连接配置')
+      router.push('/connect')
+    } else {
+      messageHandler.value?.error(`重新连接失败，${MAX_RECONNECT_ATTEMPTS - reconnectAttempts}次重试机会`)
+      // 延迟后自动重试
+      setTimeout(handleReconnect, RECONNECT_INTERVAL)
+    }
   } finally {
     reconnecting.value = false
   }
 }
 
-// 定期检查连接状态
-let checkInterval: number | null = null
-
+// 修改组件挂载和卸载逻辑
 onMounted(() => {
+  // 创建终端服务
+  terminalService.value = createTerminalService()
   // 初始化终端
   initTerminal()
   // 加载键列表
   loadKeys()
-  // 开始定期检查连接状态，每60秒检查一次
-  checkInterval = window.setInterval(checkConnection, 60000)
+  // 启动心跳检测
+  heartbeatInterval = window.setInterval(sendHeartbeat, HEARTBEAT_INTERVAL)
   window.addEventListener('resize', handleResize)
 })
 
 onUnmounted(() => {
-  // 清理定时器
-  if (checkInterval) {
-    clearInterval(checkInterval)
+  if (terminalService.value) {
+    try {
+      terminalService.value.dispose()
+    } catch (error) {
+      console.error('清理终端时出错:', error)
+    }
   }
-  // 清理终端
-  terminalService.value?.dispose()
+  if (heartbeatInterval) {
+    clearInterval(heartbeatInterval)
+  }
   window.removeEventListener('resize', handleResize)
   if (terminalRef.value) {
-    terminalRef.value.removeEventListener('paste', () => {});
-    terminalRef.value.removeEventListener('compositionstart', () => {});
-    terminalRef.value.removeEventListener('compositionupdate', () => {});
-    terminalRef.value.removeEventListener('compositionend', () => {});
+    terminalRef.value = null
   }
-});
+  terminalService.value = null
+})
 
-// 在 script setup 部分添加表格列定义
+// 定义表格行的类型
+interface ListRow {
+  index: number
+  value: string
+}
+
+interface SetRow {
+  value: string
+}
+
+interface HashRow {
+  field: string
+  value: string
+}
+
+interface ZSetRow {
+  member: string
+  score: number
+}
+
+// 修改表格列定义
 const listColumns = [
   { title: '索引', key: 'index', width: 80 },
   { title: '值', key: 'value' }
@@ -422,7 +515,10 @@ const getLengthValue = computed(() => {
         </n-input-group>
       </div>
       <div class="key-list">
-        <n-scrollbar style="max-height: calc(100vh - 180px)">
+        <n-scrollbar 
+          style="max-height: calc(100vh - 180px)"
+          @scroll="handleScroll"
+        >
           <n-timeline item-placement="left">
             <n-timeline-item
               v-for="key in keyTree"
@@ -485,10 +581,10 @@ const getLengthValue = computed(() => {
           </template>
 
           <!-- List 类型显示 -->
-          <template v-if="keyType === 'list'">
+          <template v-if="keyType === 'list' && Array.isArray(keyValue)">
             <n-data-table
               :columns="listColumns"
-              :data="Array.isArray(keyValue) ? keyValue.map((item, index) => ({ index, value: String(item) })) : []"
+              :data="keyValue.map((item, index) => ({ index, value: item }))"
               :pagination="{ pageSize: 10 }"
               :bordered="false"
               striped
@@ -496,10 +592,10 @@ const getLengthValue = computed(() => {
           </template>
 
           <!-- Set 类型显示 -->
-          <template v-if="keyType === 'set'">
+          <template v-if="keyType === 'set' && Array.isArray(keyValue)">
             <n-data-table
               :columns="setColumns"
-              :data="Array.isArray(keyValue) ? keyValue.map(item => ({ value: String(item) })) : []"
+              :data="keyValue.map(item => ({ value: item }))"
               :pagination="{ pageSize: 10 }"
               :bordered="false"
               striped
@@ -507,10 +603,10 @@ const getLengthValue = computed(() => {
           </template>
 
           <!-- Hash 类型显示 -->
-          <template v-if="keyType === 'hash'">
+          <template v-if="keyType === 'hash' && keyValue">
             <n-data-table
               :columns="hashColumns"
-              :data="Object.entries(keyValue || {}).map(([field, value]) => ({ field, value: String(value) }))"
+              :data="Object.entries(keyValue).map(([field, value]) => ({ field, value }))"
               :pagination="{ pageSize: 10 }"
               :bordered="false"
               striped
@@ -518,10 +614,10 @@ const getLengthValue = computed(() => {
           </template>
 
           <!-- ZSet 类型显示 -->
-          <template v-if="keyType === 'zset'">
+          <template v-if="keyType === 'zset' && Array.isArray(keyValue)">
             <n-data-table
               :columns="zsetColumns"
-              :data="Array.isArray(keyValue) ? keyValue.map(item => ({ member: String(item.member), score: item.score })) : []"
+              :data="keyValue.map(item => ({ member: item.member, score: item.score }))"
               :pagination="{ pageSize: 10 }"
               :bordered="false"
               striped
@@ -679,6 +775,7 @@ body {
   overflow: hidden;
   background-color: var(--n-color);
   padding: 16px;
+  position: relative;
 }
 
 :deep(.n-timeline) {
@@ -686,6 +783,9 @@ body {
 }
 
 :deep(.n-timeline-item) {
+  height: 40px; /* 固定每个键的高度 */
+  display: flex;
+  align-items: center;
   cursor: pointer;
   padding: 8px 0;
   transition: all 0.3s ease;

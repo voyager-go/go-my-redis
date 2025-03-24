@@ -26,11 +26,10 @@ const handleDisconnect = async () => {
   const result = await connectionState.disconnect()
   if (result.success) {
     messageHandler.value?.success(result.message)
-    router.push('/connect')
   } else {
     messageHandler.value?.error(result.message)
-    router.push('/connect')
   }
+  router.push('/connect')
 }
 </script>
 

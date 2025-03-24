@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { useMessage, NCard, NSpace, NForm, NFormItem, NInput, NInputNumber, NButton, NDivider, NEmpty, NList, NListItem, NThing, NIcon } from 'naive-ui'
+import { useMessage, NCard, NSpace, NForm, NFormItem, NInput, NInputNumber, NButton, NDivider, NEmpty, NList, NListItem, NThing, NIcon, NResult } from 'naive-ui'
 import { redisApi } from '../api/redis'
 import { connectionHistory, type ConnectionRecord } from '../services/connectionHistory'
+import { connectionState } from '../services/connectionState'
 import { ServerOutline } from '@vicons/ionicons5'
 
 const router = useRouter()
@@ -14,6 +15,7 @@ const historyRecords = ref<ConnectionRecord[]>([])
 const formData = ref({
   host: 'localhost',
   port: 6379,
+  username: '',
   password: '',
   db: 0
 })
@@ -74,6 +76,12 @@ const handleClearHistory = () => {
               :min="1"
               :max="65535"
               placeholder="输入端口号"
+            />
+          </n-form-item>
+          <n-form-item label="账号" path="username">
+            <n-input
+              v-model:value="formData.username"
+              placeholder="输入账号（可选）"
             />
           </n-form-item>
           <n-form-item label="密码" path="password">

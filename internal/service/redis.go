@@ -20,6 +20,7 @@ func NewRedisService() *RedisService {
 func (s *RedisService) Connect(config model.RedisConfig) error {
 	s.client = redis.NewClient(&redis.Options{
 		Addr:     fmt.Sprintf("%s:%d", config.Host, config.Port),
+		Username: config.Username,
 		Password: config.Password,
 		DB:       config.DB,
 	})
