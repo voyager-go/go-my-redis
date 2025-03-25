@@ -22,3 +22,10 @@ Thumbs.db
 .env
 .env.development
 .env.production
+
+# Node modules
+node_modules/
+
+# Golang 编译产物
+gomyredis
+

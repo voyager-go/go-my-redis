@@ -52,11 +52,12 @@ export const createTerminalService = (): TerminalService => {
     executeCommandCallback = onExecuteCommand
     terminal = new Terminal({
       cursorBlink: true,
+      cursorWidth: 2,
       fontSize: 14,
-      fontFamily: '"JetBrains Mono", "Microsoft YaHei", "微软雅黑", monospace',
+      fontFamily: 'Consolas, "Courier New", "JetBrains Mono", "Microsoft YaHei", "微软雅黑", monospace',
       fontWeight: 'normal',
       lineHeight: 1.2,
-      letterSpacing: 0,
+      letterSpacing: 0.5,
       theme: {
         background: '#1e1e1e',
         foreground: '#d4d4d4',
@@ -116,6 +117,13 @@ export const createTerminalService = (): TerminalService => {
       }
     })
 
+    terminal.onKey((event) => {
+      if (event.key === '\u0003' && event.domEvent.ctrlKey) {
+        // 清空当前行，保留 > 并回到行首
+        terminal?.write('\r\x1b[K> ') 
+      }
+    })
+
     // 使用 onData 监听输入，支持中文和常规按键
     terminal.onData((data) => {
       if (!terminal) return
@@ -152,7 +160,7 @@ export const createTerminalService = (): TerminalService => {
             terminal.write('\r> ' + currentCommand.slice(0, cursorPosition))
           }
         }
-      } else if (charCode === 27) { // Escape sequences (e.g., arrow keys)
+      } else if (charCode === 27) {
         if (data === '\x1b[A') { // Up arrow
           if (historyIndex > 0) {
             historyIndex--
