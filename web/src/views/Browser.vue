@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed, watch, nextTick } from 'vue'
-import { NInputGroup, NInput, NButton, NIcon, NScrollbar, NSpace, NInputNumber, NEmpty, NTimeline, NTimelineItem, NTag, NDescriptions, NDescriptionsItem, NModal, NDataTable } from 'naive-ui'
+import { NInputGroup, NInput, NButton, NIcon, NScrollbar, NSpace, NInputNumber, NEmpty, NTimeline, NTimelineItem, NTag, NDescriptions, NDescriptionsItem, NModal, NDataTable, useMessage } from 'naive-ui'
 import { redisApi } from '../api/redis'
 import { connectionState } from '../services/connectionState'
-import { SearchOutline, TrashOutline, SaveOutline, TerminalOutline, CloseOutline } from '@vicons/ionicons5'
+import { SearchOutline, TrashOutline, SaveOutline, TerminalOutline, CloseOutline, CopyOutline, RefreshOutline } from '@vicons/ionicons5'
 import '@fontsource/jetbrains-mono'
 import { createTerminalService, type TerminalService } from '../services/terminal'
 import { useRouter } from 'vue-router'
@@ -39,6 +39,14 @@ let reconnectAttempts = 0
 const MAX_RECONNECT_ATTEMPTS = 3
 const HEARTBEAT_INTERVAL = 15000 // 15秒发送一次心跳
 const RECONNECT_INTERVAL = 5000 // 5秒重连一次
+
+const message = useMessage()
+
+// 在 script setup 部分添加类型定义
+interface ZSetItem {
+  member: string
+  score: number
+}
 
 const loadKeys = async () => {
   try {
@@ -153,18 +161,73 @@ const handleSave = async () => {
   if (!selectedKey.value) return
   saving.value = true
   try {
-    await redisApi.set(selectedKey.value, keyValue.value)
+    // 根据类型执行不同的命令
+    switch (keyType.value) {
+      case 'string':
+        // 如果 keyValue.value 是对象，则转换为 JSON 字符串
+        let keyValueString = keyValue.value
+        if (typeof keyValueString === 'object') {
+          keyValueString = JSON.stringify(keyValueString)
+        }
+        // 如果 keyValue.value 是数组，则转换为 JSON 字符串
+        if (Array.isArray(keyValueString)) {
+          keyValueString = JSON.stringify(keyValueString)
+        }
+        // 如果 keyValue.value 是字符串，且两个字符串之间存在空格，则需要将完整内容带上双引号
+        if (typeof keyValueString === 'string' && keyValueString.includes(' ')) {
+          keyValueString = `\"${keyValueString}\"`
+        }
+        await redisApi.executeCommand(`SET ${selectedKey.value} ${keyValueString}`)
+        break
+      case 'list':
+        // 先删除原列表
+        await redisApi.executeCommand(`DEL ${selectedKey.value}`)
+        // 重新添加所有元素
+        for (const item of keyValue.value) {
+          await redisApi.executeCommand(`RPUSH ${selectedKey.value} ${item}`)
+        }
+        break
+      case 'set':
+        // 先删除原集合
+        await redisApi.executeCommand(`DEL ${selectedKey.value}`)
+        // 重新添加所有元素
+        for (const item of keyValue.value) {
+          await redisApi.executeCommand(`SADD ${selectedKey.value} ${item}`)
+        }
+        break
+      case 'hash':
+        // 先删除原哈希
+        await redisApi.executeCommand(`DEL ${selectedKey.value}`)
+        // 重新添加所有字段
+        for (const [field, value] of Object.entries(keyValue.value)) {
+          await redisApi.executeCommand(`HSET ${selectedKey.value} ${field} ${value}`)
+        }
+        break
+      case 'zset':
+        // 先删除原有序集合
+        await redisApi.executeCommand(`DEL ${selectedKey.value}`)
+        // 重新添加所有元素
+        if (Array.isArray(keyValue.value)) {
+          for (const item of keyValue.value as ZSetItem[]) {
+            await redisApi.executeCommand(`ZADD ${selectedKey.value} ${item.score} ${item.member}`)
+          }
+        }
+        break
+      default:
+        throw new Error('不支持的数据类型')
+    }
+
     // 确保 TTL 是数字类型
     const currentTTL = Number(ttl.value)
     if (currentTTL !== initialTTL.value) {
       if (currentTTL > 0 || currentTTL === -1) {
-        await redisApi.expire(selectedKey.value, currentTTL)
+        await redisApi.executeCommand(`EXPIRE ${selectedKey.value} ${currentTTL}`)
       }
       initialTTL.value = currentTTL
     }
-    messageHandler.value?.success('保存成功')
+    message.success('保存成功')
   } catch (error: any) {
-    messageHandler.value?.error(error.response?.data?.error || '保存失败')
+    message.error(error.response?.data?.error || '保存失败')
   } finally {
     saving.value = false
   }
@@ -218,6 +281,7 @@ const initTerminal = () => {
   }
 }
 
+// 修改 executeTerminalCommand 函数
 const executeTerminalCommand = async (command: string) => {
   if (!terminalService.value) return
   
@@ -236,6 +300,7 @@ const executeTerminalCommand = async (command: string) => {
   }
   
   try {
+    // 直接传递原始命令给 API
     const response = await redisApi.executeCommand(command)
     const result = response.result || response.data?.result || response.data
     
@@ -243,10 +308,21 @@ const executeTerminalCommand = async (command: string) => {
     const commandLower = command.toLowerCase()
     if (commandLower.startsWith('set')) {
       terminalService.value.writeln('OK')
+      // 如果是 SET 命令，提取 key 并自动搜索
+      const keyMatch = command.match(/set\s+(\S+)/i)
+      if (keyMatch) {
+        searchPattern.value = keyMatch[1]
+        await loadKeys()
+      }
     } else if (result === null || result === undefined) {
       terminalService.value.writeln('(nil)')
     } else if (typeof result === 'string') {
-      terminalService.value.writeln(result)
+      // 如果是 GET 命令，给字符串值加上双引号
+      if (commandLower.startsWith('get')) {
+        terminalService.value.writeln(`"${result}"`)
+      } else {
+        terminalService.value.writeln(result)
+      }
     } else if (Array.isArray(result)) {
       terminalService.value.writeln(JSON.stringify(result))
     } else {
@@ -318,33 +394,6 @@ watch(showTerminal, (value) => {
     }
   })
 })
-
-const checkConnection = async () => {
-  try {
-    // 发送 PING 命令来保持连接活跃
-    await redisApi.executeCommand('PING')
-    const isConnected = await connectionState.checkConnection()
-    if (!isConnected) {
-      messageHandler.value?.error('连接已断开')
-      showReconnectModal.value = true
-    }
-  } catch (error) {
-    console.error('检查连接状态时出错:', error)
-    messageHandler.value?.error('检查连接状态失败')
-    showReconnectModal.value = true
-  }
-}
-
-const handleDisconnect = async () => {
-  const result = await connectionState.disconnect()
-  if (result.success) {
-    messageHandler.value?.success(result.message)
-    router.push('/connect')
-  } else {
-    messageHandler.value?.error(result.message)
-    router.push('/connect')
-  }
-}
 
 // 修改心跳检测函数
 const sendHeartbeat = async () => {
@@ -425,26 +474,6 @@ onUnmounted(() => {
   terminalService.value = null
 })
 
-// 定义表格行的类型
-interface ListRow {
-  index: number
-  value: string
-}
-
-interface SetRow {
-  value: string
-}
-
-interface HashRow {
-  field: string
-  value: string
-}
-
-interface ZSetRow {
-  member: string
-  score: number
-}
-
 // 修改表格列定义
 const listColumns = [
   { title: '索引', key: 'index', width: 80 },
@@ -496,6 +525,25 @@ const getLengthValue = computed(() => {
       return 0
   }
 })
+
+// 修改复制方法
+const copyKey = async () => {
+  try {
+    await navigator.clipboard.writeText(selectedKey.value)
+    message.success('已复制到剪贴板')
+  } catch (error) {
+    message.error('复制失败')
+  }
+}
+
+// 修改刷新方法
+const refreshKey = async () => {
+  if (selectedKey.value) {
+    message.info('正在刷新...')
+    await handleKeyClick(selectedKey.value)
+    message.success('刷新完成')
+  }
+}
 </script>
 
 <template>
@@ -541,15 +589,25 @@ const getLengthValue = computed(() => {
           <n-space align="center" justify="space-between">
             <n-space>
               <span class="key-name">{{ selectedKey }}</span>
-              <n-tag :type="getTypeColor(keyType)" size="small">
-                {{ keyType }}
-              </n-tag>
+              <n-space align="center">
+                <n-tag :type="getTypeColor(keyType)" size="small" style="height: 24px; line-height: 24px; padding: 0 8px;">
+                  {{ keyType }}
+                </n-tag>
+                <!-- 居中 -->
+                <n-button text size="tiny" @click="copyKey" style="height: 24px; width: 24px; padding: 0; display: flex; align-items: center; justify-content: center;">
+                  <n-icon size="20"><CopyOutline /></n-icon>
+                </n-button>
+                <n-button text size="tiny" @click="refreshKey" style="height: 24px; width: 24px; padding: 0; display: flex; align-items: center; justify-content: center;">
+                  <n-icon size="20"><RefreshOutline /></n-icon>
+                </n-button>
+              </n-space>
             </n-space>
           </n-space>
         </template>
 
         <n-space vertical size="large">
-          <!-- 修改描述列表为左右布局 -->
+            <n-scrollbar style="max-height: calc(100vh - 180px)">
+                <!-- 修改描述列表为左右布局 -->
           <n-descriptions v-if="keyType !== 'string'" bordered :column="2" size="small" label-placement="left">
             <n-descriptions-item label="类型">
               {{ keyType }}
@@ -565,7 +623,7 @@ const getLengthValue = computed(() => {
             :min="-1"
             :max="2147483647"
             placeholder="TTL (秒)"
-            class="full-width"
+            style="width: 200px"
           >
             <template #prefix>TTL:</template>
           </n-input-number>
@@ -573,6 +631,7 @@ const getLengthValue = computed(() => {
           <!-- 值编辑区域 -->
           <template v-if="keyType === 'string'">
             <n-input
+              style="margin-top: 10px;"
               v-model:value="keyValue"
               type="textarea"
               placeholder="值"
@@ -582,17 +641,20 @@ const getLengthValue = computed(() => {
 
           <!-- List 类型显示 -->
           <template v-if="keyType === 'list' && Array.isArray(keyValue)">
-            <n-data-table
+            <n-scrollbar style="max-height: calc(100vh - 180px)">
+              <n-data-table
               :columns="listColumns"
               :data="keyValue.map((item, index) => ({ index, value: item }))"
               :pagination="{ pageSize: 10 }"
               :bordered="false"
               striped
             />
+            </n-scrollbar>
           </template>
 
           <!-- Set 类型显示 -->
           <template v-if="keyType === 'set' && Array.isArray(keyValue)">
+            <n-scrollbar style="max-height: calc(100vh - 180px)">
             <n-data-table
               :columns="setColumns"
               :data="keyValue.map(item => ({ value: item }))"
@@ -600,10 +662,12 @@ const getLengthValue = computed(() => {
               :bordered="false"
               striped
             />
+            </n-scrollbar>
           </template>
 
           <!-- Hash 类型显示 -->
           <template v-if="keyType === 'hash' && keyValue">
+           <n-scrollbar style="max-height: calc(100vh - 180px)">
             <n-data-table
               :columns="hashColumns"
               :data="Object.entries(keyValue).map(([field, value]) => ({ field, value }))"
@@ -611,6 +675,7 @@ const getLengthValue = computed(() => {
               :bordered="false"
               striped
             />
+           </n-scrollbar>
           </template>
 
           <!-- ZSet 类型显示 -->
@@ -624,8 +689,8 @@ const getLengthValue = computed(() => {
             />
           </template>
 
-          <!-- 操作按钮 -->
-          <n-space justify="end">
+          <!-- 操作按钮 margin-top: 10px -->
+          <n-space justify="end" style="margin-top: 10px;">
             <n-button
               type="error"
               strong
@@ -651,6 +716,7 @@ const getLengthValue = computed(() => {
               保存
             </n-button>
           </n-space>
+            </n-scrollbar>
         </n-space>
       </n-card>
       <n-empty v-else description="请选择一个键" />
@@ -668,10 +734,10 @@ const getLengthValue = computed(() => {
       <!-- 终端区域 -->
       <div v-show="showTerminal" class="terminal-area">
         <div 
-          ref="terminalRef" 
-          class="terminal-container"
-          tabindex="0"
-        ></div>
+            ref="terminalRef" 
+            class="terminal-container"
+            tabindex="0"
+          ></div>
       </div>
     </div>
 
@@ -885,18 +951,23 @@ body {
 .cli-trigger {
   position: fixed;
   bottom: 16px;
-  right: 16px;
+  left: 16px;
   z-index: 1000;
+  background-color: var(--n-color);
+  border-radius: 4px;
+  padding: 4px 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
 }
 
 .terminal-area {
   position: fixed;
-  left: 0;
   right: 0;
   bottom: 0;
+  width: calc(100% - 344px); /* 减去左侧面板宽度(320px)和间距(24px) */
   height: 300px;
-  background-color: #1e1e1e;  /* 直接使用固定的深色背景 */
+  background-color: #1e1e1e;
   border-top: 1px solid var(--n-border-color);
+  border-left: 1px solid var(--n-border-color);
   z-index: 999;
 }
 
@@ -980,5 +1051,37 @@ body {
   left: 50%;
   transform: translate(-50%, -50%);
   margin: 0;
+}
+
+:deep(.n-tag) {
+  height: 24px;
+  line-height: 24px;
+  padding: 0 8px;
+}
+
+:deep(.n-button.n-button--text) {
+  height: 24px;
+  width: 24px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  outline: none !important;
+}
+
+:deep(.n-button.n-button--text:focus) {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+:deep(.n-icon) {
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+:deep(.n-input-number) {
+  width: 200px;
 }
 </style>

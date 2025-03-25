@@ -6,7 +6,6 @@ import (
 	"go-my-redis/internal/model"
 	"go-my-redis/internal/service"
 	"net/http"
-	"strings"
 
 	"github.com/gin-gonic/gin"
 )
@@ -95,8 +94,39 @@ func (h *RedisHandler) ExecuteCommand(c *gin.Context) {
 		return
 	}
 
-	// 分割命令
-	parts := strings.Fields(request.Command)
+	// 分割命令，保持引号内的内容完整
+	parts := make([]string, 0)
+	current := ""
+	inQuotes := false
+	quoteChar := byte(0)
+
+	for i := 0; i < len(request.Command); i++ {
+		char := request.Command[i]
+
+		if char == '"' || char == '\'' {
+			if !inQuotes {
+				inQuotes = true
+				quoteChar = char
+			} else if char == quoteChar {
+				inQuotes = false
+				quoteChar = 0
+			} else {
+				current += string(char)
+			}
+		} else if char == ' ' && !inQuotes {
+			if current != "" {
+				parts = append(parts, current)
+				current = ""
+			}
+		} else {
+			current += string(char)
+		}
+	}
+
+	if current != "" {
+		parts = append(parts, current)
+	}
+
 	if len(parts) == 0 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "No command provided"})
 		return

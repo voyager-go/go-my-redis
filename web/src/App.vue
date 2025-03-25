@@ -14,7 +14,6 @@ import { connectionState } from './services/connectionState'
 const router = useRouter()
 const currentRoute = useRoute()
 const isDark = ref(true)
-const isConnected = computed(() => router.currentRoute.value.path !== '/')
 const theme = computed(() => isDark.value ? darkTheme : lightTheme)
 const messageHandler = ref()
 
@@ -31,6 +30,10 @@ const handleDisconnect = async () => {
   }
   router.push('/connect')
 }
+
+const handleHome = () => {
+  router.push('/home')
+}
 </script>
 
 <template>
@@ -39,7 +42,7 @@ const handleDisconnect = async () => {
       <message-handler ref="messageHandler" />
       <n-layout position="absolute">
         <n-layout-header bordered style="height: 64px; padding: 16px 24px;">
-          <div class="header-content">
+          <div class="header-content" @click="handleHome">
             <div class="logo">
               <n-icon size="24" color="var(--primary-color)">
                 <LogoRedis />
@@ -100,6 +103,7 @@ html, body {
   justify-content: space-between;
   align-items: center;
   height: 100%;
+  cursor: pointer;
 }
 
 .logo {

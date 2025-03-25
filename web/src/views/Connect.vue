@@ -103,11 +103,13 @@ const handleConnect = async () => {
   }
 }
 
+// 点击历史会话应该自动连接   
 const handleHistoryClick = (history: ConnectionHistory) => {
   formData.value = {
     ...history,
     sessionName: history.sessionName || 'Localhost'
   }
+  handleConnect()
 }
 
 const handleClearHistory = () => {

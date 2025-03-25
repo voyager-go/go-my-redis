@@ -109,6 +109,7 @@ export const createTerminalService = (): TerminalService => {
       }
     })
 
+    // 监听输入法结束事件，改变了命令字符顺序，需要调整
     container.addEventListener('compositionend', (e: CompositionEvent) => {
       isComposing = false
       if (e.data && terminal) {
@@ -131,7 +132,6 @@ export const createTerminalService = (): TerminalService => {
       if (isComposing) return // 输入法组合中，不处理按键
 
       const charCode = data.charCodeAt(0)
-
       if (charCode === 13) { // Enter
         terminal.write('\r\n')
         if (currentCommand.trim()) {
@@ -160,7 +160,7 @@ export const createTerminalService = (): TerminalService => {
             terminal.write('\r> ' + currentCommand.slice(0, cursorPosition))
           }
         }
-      } else if (charCode === 27) {
+      } else if (charCode === 27) { // 方向键
         if (data === '\x1b[A') { // Up arrow
           if (historyIndex > 0) {
             historyIndex--
@@ -192,18 +192,28 @@ export const createTerminalService = (): TerminalService => {
           }
         }
       } else { // 普通字符输入
-        currentCommand = currentCommand.slice(0, cursorPosition) + data + currentCommand.slice(cursorPosition)
-        cursorPosition++
-        terminal.write(data)
+        // 处理粘贴的文本
+        if (data.length > 1) {
+          // 如果是粘贴的文本，直接插入到当前位置
+          currentCommand = currentCommand.slice(0, cursorPosition) + data + currentCommand.slice(cursorPosition)
+          cursorPosition += data.length
+          terminal.write(data)
+        } else {
+          // 单个字符输入
+          currentCommand = currentCommand.slice(0, cursorPosition) + data + currentCommand.slice(cursorPosition)
+          cursorPosition++
+          terminal.write(data)
+        }
       }
     })
 
-    terminal.writeln('Redis CLI - 输入命令后按回车执行')
+    terminal.writeln('Redis CLI - 输入命令后按回车执行(暂不支持中文输入)')
     terminal.writeln('示例: SET key value / GET key / DEL key')
     terminal.write('\r\n> ')
   }
 
   const executeCommand = async (command: string) => {
+
     if (!terminal) return
 
     if (!command.trim()) {
@@ -222,6 +232,7 @@ export const createTerminalService = (): TerminalService => {
 
     try {
       if (executeCommandCallback) {
+        // 直接传递原始命令，不做任何处理
         await executeCommandCallback(command)
       } else {
         terminal.writeln('命令执行功能未初始化')
