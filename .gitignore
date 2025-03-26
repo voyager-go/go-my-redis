@@ -28,4 +28,8 @@ node_modules/
 
 # Golang 编译产物
 gomyredis
+gomyredis_linux_amd64
+gomyredis_windows_amd64.exe
 
+# 构建产物
+internal/handler/static/

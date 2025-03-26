@@ -127,111 +127,160 @@ const toggleHistory = () => {
 
 <template>
   <div class="connect-container">
-    <n-card title="Redis 连接" :bordered="false">
-      <n-form
-        ref="formRef"
-        :model="formData"
-        :rules="rules"
-        label-placement="left"
-        label-width="100"
-        require-mark-placement="right-hanging"
-      >
-        <n-form-item label="会话名称" path="sessionName">
-          <n-input v-model:value="formData.sessionName" placeholder="输入会话名称" />
-        </n-form-item>
-        
-        <n-form-item label="主机地址" path="host">
-          <n-input v-model:value="formData.host" placeholder="输入主机地址" />
-        </n-form-item>
-        
-        <n-form-item label="端口" path="port">
-          <n-input-number v-model:value="formData.port" :min="1" :max="65535" placeholder="输入端口" />
-        </n-form-item>
-        
-        <n-form-item label="用户名" path="username">
-          <n-input v-model:value="formData.username" placeholder="输入用户名（可选）" />
-        </n-form-item>
-        
-        <n-form-item label="密码" path="password">
-          <n-input
-            v-model:value="formData.password"
-            type="password"
-            placeholder="输入密码（可选）"
-            show-password-on="click"
-          />
-        </n-form-item>
-        
-        <n-form-item label="数据库" path="db">
-          <n-input-number v-model:value="formData.db" :min="0" :max="15" placeholder="选择数据库" />
-        </n-form-item>
-        
-        <n-form-item>
-          <div class="form-footer">
-            <n-button
-              type="primary"
-              @click="handleConnect"
-              :loading="loading"
-              :disabled="loading"
-            >
-              连接
-            </n-button>
-          </div>
-        </n-form-item>
-      </n-form>
-    </n-card>
+    <div class="wave-background">
+      <img src="@/assets/wave.svg" alt="wave" class="wave-svg">
+    </div>
+    <div class="connect-content">
+      <n-card title="Redis 连接配置" :bordered="false">
+        <n-form
+          ref="formRef"
+          :model="formData"
+          :rules="rules"
+          label-placement="left"
+          label-width="100"
+          require-mark-placement="right-hanging"
+        >
+          <n-form-item label="会话名称" path="sessionName">
+            <n-input v-model:value="formData.sessionName" placeholder="输入会话名称" />
+          </n-form-item>
+          
+          <n-form-item label="主机地址" path="host">
+            <n-input v-model:value="formData.host" placeholder="输入主机地址" />
+          </n-form-item>
+          
+          <n-form-item label="端口" path="port">
+            <n-input-number v-model:value="formData.port" :min="1" :max="65535" placeholder="输入端口" />
+          </n-form-item>
+          
+          <n-form-item label="用户名" path="username">
+            <n-input v-model:value="formData.username" placeholder="输入用户名（可选）" />
+          </n-form-item>
+          
+          <n-form-item label="密码" path="password">
+            <n-input
+              v-model:value="formData.password"
+              type="password"
+              placeholder="输入密码（可选）"
+              show-password-on="click"
+            />
+          </n-form-item>
+          
+          <n-form-item label="数据库" path="db">
+            <n-input-number v-model:value="formData.db" :min="0" :max="15" placeholder="选择数据库" />
+          </n-form-item>
+          
+          <n-form-item>
+            <div class="form-footer">
+              <n-button
+                type="primary"
+                @click="handleConnect"
+                :loading="loading"
+                :disabled="loading"
+              >
+                连接
+              </n-button>
+            </div>
+          </n-form-item>
+        </n-form>
+      </n-card>
 
-    <!-- 历史会话列表 -->
-    <n-card v-if="connectionHistory.length > 0" title="历史会话" :bordered="false" class="history-card">
-      <template #header-extra>
-        <n-space>
-          <n-button
-            circle
-            @click="toggleHistory"
-          >
-            <template #icon>
-              <n-icon>
-                <component :is="showHistory ? ChevronDownOutline : ChevronUpOutline" />
-              </n-icon>
-            </template>
-          </n-button>
-          <n-button
-            circle
-            @click="handleClearHistory"
-            title="清除历史"
-          >
-          <template #icon>
-              <n-icon>
-                <component :is="TrashOutline" />
-              </n-icon>
-            </template>
-          </n-button>
-        </n-space>
-      </template>
-      
-      <n-collapse-transition :show="showHistory">
-        <n-list>
-          <n-list-item v-for="history in connectionHistory" :key="history.timestamp">
-            <n-thing
-              :title="history.sessionName"
-              :description="`${history.host}:${history.port} (DB: ${history.db})`"
-              @click="handleHistoryClick(history)"
+      <!-- 历史会话列表 -->
+      <n-card v-if="connectionHistory.length > 0" title="历史会话" :bordered="false" class="history-card">
+        <template #header-extra>
+          <n-space>
+            <n-button
+              circle
+              @click="toggleHistory"
             >
-              <template #avatar>
-                <n-icon><ServerOutline /></n-icon>
+              <template #icon>
+                <n-icon>
+                  <component :is="showHistory ? ChevronDownOutline : ChevronUpOutline" />
+                </n-icon>
               </template>
-            </n-thing>
-          </n-list-item>
-        </n-list>
-      </n-collapse-transition>
-    </n-card>
+            </n-button>
+            <n-button
+              circle
+              @click="handleClearHistory"
+              title="清除历史"
+            >
+            <template #icon>
+                <n-icon>
+                  <component :is="TrashOutline" />
+                </n-icon>
+              </template>
+            </n-button>
+          </n-space>
+        </template>
+        
+        <n-collapse-transition :show="showHistory">
+          <n-list>
+            <n-list-item v-for="history in connectionHistory" :key="history.timestamp">
+              <n-thing
+                :title="history.sessionName"
+                :description="`${history.host}:${history.port} (DB: ${history.db})`"
+                @click="handleHistoryClick(history)"
+              >
+                <template #avatar>
+                  <n-icon><ServerOutline /></n-icon>
+                </template>
+              </n-thing>
+            </n-list-item>
+          </n-list>
+        </n-collapse-transition>
+      </n-card>
+    </div>
   </div>
 </template>
 
 <style scoped>
 .connect-container {
-  max-width: 600px;
-  margin: 0 auto;
-  padding: 20px;
+  position: relative;
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  overflow: hidden;
+}
+
+.wave-background {
+  position: fixed;
+  bottom: -20px;
+  left: 0;
+  width: 100%;
+  z-index: 0;
+}
+
+.wave-svg {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0.8;
+}
+
+.connect-content {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 500px;
+  margin: 0 1rem;
+  overflow-y: auto;
+}
+
+/* 添加动画效果 */
+.wave-svg {
+  animation: waveFloat 20s ease-in-out infinite;
+}
+
+@keyframes waveFloat {
+  0% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+  100% {
+    transform: translateY(0);
+  }
 }
 
 .history-card {
@@ -267,5 +316,12 @@ const toggleHistory = () => {
   display: flex;
   justify-content: flex-end;
   margin-left: 100px;
+}
+
+/* 添加全局样式防止页面滚动 */
+:global(body) {
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
 }
 </style> 

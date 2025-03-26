@@ -623,7 +623,7 @@ const refreshKey = async () => {
             :min="-1"
             :max="2147483647"
             placeholder="TTL (秒)"
-            style="width: 200px"
+            style="width: 200px; margin: 10px 0;"
           >
             <template #prefix>TTL:</template>
           </n-input-number>
@@ -631,7 +631,6 @@ const refreshKey = async () => {
           <!-- 值编辑区域 -->
           <template v-if="keyType === 'string'">
             <n-input
-              style="margin-top: 10px;"
               v-model:value="keyValue"
               type="textarea"
               placeholder="值"

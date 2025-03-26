@@ -16,9 +16,11 @@ Go-My-Redis 是一个轻量级的Redis Web Admin管理工具，提供了直观�
 ## 效果图
 
 ![介绍页面](https://i.imgur.com/xJZ7w0A.png)
-![连接页面](https://i.imgur.com/hmWKqi3.png)
-![连接页面](https://i.imgur.com/cXKOfNx.png)
-![终端操作](https://i.imgur.com/YrK09XV.png)
+![连接页面](https://i.imgur.com/78B5mum.png)
+![连接页面](https://i.imgur.com/aAFBt7y.png)
+![终端操作](https://i.imgur.com/d6FBivI.png)
+![终端操作](https://i.imgur.com/ODSgxRw.png)
+![主题切换](https://i.imgur.com/78B5mum.png)
 
 
 ## 技术栈
@@ -39,6 +41,12 @@ Go-My-Redis 是一个轻量级的Redis Web Admin管理工具，提供了直观�
 chmod +x build.sh
 ./build.sh
 ```
+
+## 下载运行
+
+### windows 可能会被防火墙阻止，请允许后，再使用管理员身份运行
+
+[软件地址](https://github.com/voyager-go/go-my-redis/releases/tag/1.1)
 
 ## 贡献指南
 

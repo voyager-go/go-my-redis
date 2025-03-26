@@ -42,8 +42,8 @@ const handleHome = () => {
       <message-handler ref="messageHandler" />
       <n-layout position="absolute">
         <n-layout-header bordered style="height: 64px; padding: 16px 24px;">
-          <div class="header-content" @click="handleHome">
-            <div class="logo">
+          <div class="header-content">
+            <div class="logo" @click="handleHome">
               <n-icon size="24" color="var(--primary-color)">
                 <LogoRedis />
               </n-icon>
