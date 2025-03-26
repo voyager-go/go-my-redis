@@ -69,10 +69,10 @@ func main() {
 	// 启动服务器
 	go func() {
 		time.Sleep(time.Second)
-		openBrowser("http://localhost:8080")
+		openBrowser("http://localhost:16379")
 	}()
 
-	if err := r.Run(":8080"); err != nil {
+	if err := r.Run(":16379"); err != nil {
 		log.Fatal("服务器启动失败:", err)
 	}
 }

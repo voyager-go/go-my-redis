@@ -15,7 +15,7 @@ cp -r ../../web/dist/* static/
 cd ../../
 
 # 构建 Go 应用
-go build -o gomyredis cmd/server/main.go
+go build -o gomyredis_darwin_arm64 cmd/server/main.go
 
 # 运行 Go 应用
-./gomyredis
+./gomyredis_darwin_arm64

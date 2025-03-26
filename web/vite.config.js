@@ -26,7 +26,7 @@ export default defineConfig({
     server: {
         proxy: {
             '/api': {
-                target: 'http://localhost:8080', // 后端服务的地址
+                target: 'http://localhost:16379', // 后端服务的地址
                 changeOrigin: true,
                 rewrite: function (path) { return path; } // 不重写路径，保留 '/api'
             }

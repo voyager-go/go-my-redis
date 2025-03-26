@@ -40,6 +40,14 @@ Go-My-Redis 是一个轻量级的Redis Web Admin管理工具，提供了直观�
 ```shell
 chmod +x build.sh
 ./build.sh
+
+# 交叉编译
+# mac
+go build -o gomyredis_darwin_arm64 cmd/server/main.go
+# linux
+GOOS=linux GOARCH=amd64 go build -o gomyredis_linux_amd64 cmd/server/main.go
+# windows
+GOOS=windows GOARCH=amd64 go build -o gomyredis_windows_x64.exe cmd/server/main.go
 ```
 
 ## 下载运行
